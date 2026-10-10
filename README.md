@@ -45,6 +45,10 @@ shiny::runApp()
 
 The app uses Qwen 3.5 (`qwen3.5-397b-a17b`), which handled the query workflow most reliably of the GWDG models tested; `model` in `app.R` switches to another. Estimating costs is free; running queries is billed to the Google Cloud project.
 
+## AI assistance
+
+Code and documentation were written with the help of [Claude Code](https://claude.com/claude-code) (Anthropic). The app itself does not use Claude.
+
 ## License
 
 MIT
