@@ -51,4 +51,4 @@ MIT
 
 ## Contact
 
-Najko Jahn <mailto:najko.jahn@sub.uni-goettingen.de>
+Najko Jahn <najko.jahn@sub.uni-goettingen.de>
