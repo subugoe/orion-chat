@@ -2,7 +2,7 @@
 
 Shiny app for asking questions about [ORION-DBs](https://orion-dbs.community/) in plain language using [GWDG AI services](https://docs.hpc.gwdg.de/services/ai-services/index.html).
 
-ORION-DBs is a growing collection of open research information, including OpenAlex, Crossref and OpenAIRE. 
+ORION-DBs is a growing collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery.
 Safeguards check every query, show its cost in advance, and run nothing without approval.
 
 ![The app answering a question about who provides OpenAlex data in ORION-DBs](home.png)
