@@ -1,0 +1,95 @@
+/*-- scss:defaults --*/
+// Colours from the sub.uni-goettingen.de stylesheet.
+
+$sub-primary:   #1A3771;
+$sub-secondary: #50A5D2;
+$sub-greyblue:  #ECEEF2;
+$sub-dark:      #1e1e1e;
+
+$primary:          $sub-primary;
+$link-color:       $sub-primary;
+$link-hover-color: $sub-secondary;
+$body-color:       $sub-dark;
+$headings-color:   $sub-primary;
+
+/*-- scss:rules --*/
+
+// Inter, self-hosted as on the website (SIL OFL, see www/Inter-OFL.txt).
+// The compiled CSS lives one folder down, hence "../".
+@font-face {
+  font-family: "Inter";
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../inter-latin-wght-normal.woff2") format("woff2");
+}
+
+:root {
+  --bs-body-font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --shiny-chat-user-message-bg: #{$sub-greyblue};
+}
+
+// Text in chat messages, following the website's typography.
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; line-height: 1.45; }
+
+.shiny-chat-message-body {
+  p, li { line-height: 1.65; }
+
+  a { font-weight: 400; text-underline-offset: 2px; }
+  a:hover, a:focus { text-decoration: none; }
+
+  h1, h2, h3, h4 { color: var(--bs-heading-color); text-wrap: balance; margin-block-end: 0.5em; }
+  h1, h2 { font-size: clamp(1.125rem, calc(0.9289rem + 0.9804vw), 1.75rem); line-height: 1.125; }
+  h3 { font-size: clamp(1rem, calc(0.9216rem + 0.3922vw), 1.25rem); }
+
+  ::marker { color: $sub-secondary; font-weight: 700; }
+  ul ::marker { font-size: 1.25em; }
+
+  // Tables: no stripes or vertical lines, thin grey rows, primary header rule.
+  .table {
+    --bs-table-striped-bg: transparent;
+    > :not(caption) > * > * { border-width: 0 0 1px; border-color: #b7b7b7; padding: 0.5rem; }
+    th { color: var(--bs-primary); font-weight: 400; border-bottom-color: currentcolor; }
+  }
+
+  blockquote {
+    margin: 0 0 1rem;
+    padding: 1rem 1.5rem;
+    color: #626262;
+    background: $sub-greyblue;
+    font-style: italic;
+    border-radius: 8px;
+  }
+}
+
+// Dark mode: navy disappears on a dark ground, so accents switch to secondary.
+[data-bs-theme="dark"] {
+  --bs-primary: #{$sub-secondary};
+  --bs-primary-rgb: 80, 165, 210;
+  --bs-link-color: #{$sub-secondary};
+  --bs-link-color-rgb: 80, 165, 210;
+  --bs-link-hover-color: #{$sub-greyblue};
+  --bs-heading-color: #{$sub-greyblue};
+  --shiny-chat-user-message-bg: #{rgba($sub-secondary, 0.16)};
+
+  .shiny-chat-message-body blockquote { color: inherit; background: rgba($sub-secondary, 0.12); }
+}
+
+// Header as on the website: primary blue with the white SUB logo.
+header.shiny-chat-page-header {
+  background: $sub-primary;
+  color: #fff;
+  --bs-emphasis-color: #fff;
+  button { color: #fff; }
+}
+
+.sub-logo {
+  height: 26px;
+  padding-right: 1rem;
+  border-right: 1px solid rgba(#fff, 0.35);
+}
+
+// Phones: the SUB logo alone, as on the website.
+@media (max-width: 576px) {
+  .sub-logo { height: 20px; padding-right: 0; border-right: 0; }
+  .shiny-chat-page-identity-title { display: none; }
+}
