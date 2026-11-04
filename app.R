@@ -114,30 +114,32 @@ my_chat$set_tools(mcp_tools())
 
 # App 
 examples <- c(
-  "Which datasets are available?",
-  "Who provides OpenAlex data, and which snapshot is the most recent?",
-  "In that snapshot, which column holds the publication type, and how do I filter by it?",
-  "Using that table: how many works were published in 2024, by type?",
-  "Export the result as CSV."
+  "Explore the data" = "What datasets are available in ORION-DBs?",
+  "Check the cost" = "What share of works from the University of Göttingen and UMG were open access between 2018 and 2025?",
+  "Export your results" = "Export the result as a CSV file."
 )
 
-# "1\." instead of "1." keeps markdown from making a list, which shinychat
-# would render as suggestion cards.
-steps <- glue('{seq_along(examples)}\\. <span class="suggestion">{examples}</span>')
+# A numbered list of suggestions renders as numbered cards; the title
+# attribute is the card heading, and clicking sends only the body text.
+steps <- glue('{seq_along(examples)}. <span class="suggestion" title="{names(examples)}">{examples}</span>')
 
 greeting <- glue(
-  "Hi! I can write and run BigQuery SQL against **ORION-DBs**. Every query ",
-  "is dry-run first; nothing runs (or costs money) until you answer **yes**.",
-  "\n\nA typical session, step by step:\n\n",
-  "{str_flatten(steps, '<br>\n')}"
+  "Hi there! I can help you explore **ORION-DBs**, open research ",
+  "information on Google BigQuery. Before running any query, I'll show ",
+  "you the SQL and what it will cost. Nothing runs until you say **yes**.",
+  "\n\n{str_flatten(steps, '\n')}"
 )
 
 chat_app(
   my_chat,
+  id = "chat",
   title = "ORION-DBs chat (GWDG)",
   icon = tags$img(src = "logo-sub.svg", alt = "SUB Göttingen", class = "sub-logo"),
   greeting = greeting,
   history = FALSE,
   bookmark_store = "disable",
+  # Wider than the default (680-760px) so SQL and tables have room;
+  # gau.scss narrows prose and user messages within it.
+  width = "min(clamp(720px, 60vw, 880px), 100%)",
   theme = bslib::bs_bundle(page_chat_theme(), sass::sass_layer_file("gau.scss"))
 )

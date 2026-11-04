@@ -26,6 +26,9 @@ $headings-color:   $sub-primary;
 :root {
   --bs-body-font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --shiny-chat-user-message-bg: #{$sub-greyblue};
+  // Start-up cards: three in a row in the 680px greeting, stacked on phones.
+  --shiny-chat-suggestion-card-min-width: 200px;
+  --shiny-chat-suggestion-card-border-radius: 6px;
 }
 
 // Text in chat messages, following the website's typography.
@@ -41,8 +44,7 @@ body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
   h1, h2 { font-size: clamp(1.125rem, calc(0.9289rem + 0.9804vw), 1.75rem); line-height: 1.125; }
   h3 { font-size: clamp(1rem, calc(0.9216rem + 0.3922vw), 1.25rem); }
 
-  ::marker { color: $sub-secondary; font-weight: 700; }
-  ul ::marker { font-size: 1.25em; }
+  ::marker { color: var(--bs-secondary-color); }
 
   // Tables: no stripes or vertical lines, thin grey rows, primary header rule.
   .table {
@@ -51,14 +53,34 @@ body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
     th { color: var(--bs-primary); font-weight: 400; border-bottom-color: currentcolor; }
   }
 
+  // Code blocks (SQL): wrap long lines instead of cutting them off.
+  pre code.hljs {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.875em;
+    line-height: 1.5;
+  }
+
+  // Quotes: upright text set off by a thin rule, no box.
   blockquote {
     margin: 0 0 1rem;
-    padding: 1rem 1.5rem;
-    color: #626262;
-    background: $sub-greyblue;
-    font-style: italic;
-    border-radius: 8px;
+    padding: 0.125rem 0 0.125rem 1rem;
+    color: var(--bs-secondary-color);
+    border-left: 2px solid var(--bs-border-color);
   }
+}
+
+// Two widths. Answers: prose at a reading measure, while code and tables
+// use the full column. Your input: a compact block, set to the right.
+.shiny-chat-message .shiny-chat-message-body {
+  :is(p, ul, ol, h1, h2, h3, h4, blockquote) { max-width: 68ch; }
+}
+
+.shiny-chat-user-message {
+  max-width: unquote("min(32rem, 75%)"); // CSS min(), not Sass's
+  padding: 0.625rem 1rem;
+  border-radius: 6px;
+  margin-block: 0.5rem 0.25rem;
 }
 
 // Dark mode: navy disappears on a dark ground, so accents switch to secondary.
@@ -70,8 +92,6 @@ body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; 
   --bs-link-hover-color: #{$sub-greyblue};
   --bs-heading-color: #{$sub-greyblue};
   --shiny-chat-user-message-bg: #{rgba($sub-secondary, 0.16)};
-
-  .shiny-chat-message-body blockquote { color: inherit; background: rgba($sub-secondary, 0.12); }
 }
 
 // Header as on the website: primary blue with the white SUB logo.
