@@ -104,11 +104,10 @@ new_chat <- function(model, log, tools) {
 }
 
 # App
-# Starter questions: see what is there, find a table, ask a full question.
 examples <- c(
-  "Browse the datasets" = "What datasets are available in ORION-DBs?",
-  "Find a table" = "Which tables have information on research funders?",
-  "Ask about open access" = "What share of works from the University of Göttingen and UMG were open access between 2018 and 2025?"
+  "Explore the data" = "What datasets are available in ORION-DBs?",
+  "Check the cost" = "What share of works from the University of Göttingen and UMG were open access between 2018 and 2025?",
+  "Export your results" = "Export the result as a CSV file."
 )
 
 # A numbered list of suggestions renders as numbered cards; the title
@@ -116,13 +115,9 @@ examples <- c(
 steps <- glue('{seq_along(examples)}. <span class="suggestion" title="{names(examples)}">{examples}</span>')
 
 greeting <- glue(
-  "I answer questions about **ORION-DBs**, a collection of open research ",
-  "information such as OpenAlex, Crossref and OpenAIRE on Google BigQuery.",
-  "\n\n",
-  "For each question, I write an SQL query and show you what it would ",
-  "cost. It runs only when you reply **yes**. Checking the cost is free, ",
-  "and you can export results as CSV files.",
-  "\n\nTry one of these to get started:",
+  "Hi there! I can help you explore **ORION-DBs**, open research ",
+  "information on Google BigQuery. Before running any query, I'll show ",
+  "you the SQL and what it will cost. Nothing runs until you say **yes**.",
   "\n\n{str_flatten(steps, '\n')}"
 )
 
@@ -134,31 +129,30 @@ footer_link <- \(text, href) {
 # Help next to the model menu: approval, where data goes, transcripts.
 help_text <- tagList(
   tags$p(
-    "Queries run only when you approve them. Each cost estimate has a ",
-    "number: reply ", tags$b("yes"), ", or ", tags$b("run #2"),
-    " if there are several."
+    "Nothing runs until you approve it. Each cost estimate has a number: ",
+    "reply yes, or run #2 if there are several."
   ),
   tags$p(
     glue(
-      "Your messages, the SQL and short previews of the results go to ",
-      "{provider$label}",
+      "Your messages, the SQL and the result previews from orion-mcp are ",
+      "sent to {provider$label}",
       if (nzchar(provider$privacy_url)) " (" else ". "
     ),
     if (nzchar(provider$privacy_url)) {
       tagList(footer_link("how they handle data", provider$privacy_url), "). ")
     },
-    "Full results stay on your computer."
+    "Full results stay on this computer."
   ),
   tags$p(
     if (save_transcripts) {
       glue(
-        "Each chat is saved as a Markdown file in ",
+        "Each chat is saved as Markdown in ",
         "{str_replace(transcript_dir, fixed(path.expand('~')), '~')}, ",
-        "with your questions, the SQL, the costs and the result previews. ",
-        "To turn this off, set ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron."
+        "with the questions, SQL, costs and result previews. ",
+        "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
       )
     } else {
-      "Chats are not saved. Save chat downloads the current one."
+      "Conversations are not saved; Save chat downloads the current one."
     }
   )
 )
@@ -172,7 +166,6 @@ ui <- tagList(
       src = app_logo[["src"]], alt = app_logo[["alt"]], class = "sub-logo"
     ),
     sidebar = FALSE,
-    placeholder = "Ask a question about ORION-DBs...",
     # Top bar as on sub.uni-goettingen.de: short links, then the contrast
     # toggle.
     toolbar_global = bslib::toolbar(
@@ -195,7 +188,7 @@ ui <- tagList(
     toolbar_input = bslib::toolbar(
       align = "left",
       bslib::toolbar_input_select(
-        "model", "Model",
+        "model", glue("{provider$label}-hosted model"),
         choices = model_choices,
         selected = provider$model,
         show_label = TRUE
