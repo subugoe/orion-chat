@@ -5,6 +5,8 @@ Shiny app for asking questions about [ORION-DBs](https://orion-dbs.community/) i
 ORION-DBs is a growing collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery.
 Safeguards check every query, show its cost in advance, and run nothing without approval.
 
+Your prompts, the SQL and the result previews returned by orion-mcp are sent to the GWDG model service; full results and exports stay on your machine. GWDG describes how it handles this data in its [Chat AI data privacy notice](https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html).
+
 ![The app showing a dry-run SQL query on the open access status of articles by the University of Göttingen and UMG, 2020–2025, with its estimated cost, and asking for approval before running it](home.png)
 
 ## Setup
@@ -55,8 +57,10 @@ ORION_CHAT_BASE_URL=https://llm.example.org/v1
 ORION_CHAT_API_KEY=...
 ORION_CHAT_MODEL=model-id
 ORION_CHAT_PROVIDER=Example
-# Optional: where the name in the top bar and footer links to
+# Optional: where the name in the top bar and footer links to, and the
+# service's data privacy page, linked in the footer
 ORION_CHAT_PROVIDER_URL=https://llm.example.org
+ORION_CHAT_PRIVACY_URL=https://llm.example.org/privacy
 ```
 
 For a provider that [ellmer](https://ellmer.tidyverse.org/) supports, name it and the model; the key is read from that provider's usual variable:

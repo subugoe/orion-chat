@@ -19,6 +19,12 @@ provider_settings <- function(get = Sys.getenv) {
       "ORION_CHAT_PROVIDER_URL",
       "https://docs.hpc.gwdg.de/services/ai-services/index.html"
     ),
+    # How the service handles data; linked in the footer if known.
+    privacy_url = setting(
+      "ORION_CHAT_PRIVACY_URL",
+      if (nzchar(get("ORION_CHAT_PROVIDER"))) "" else
+        "https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html"
+    ),
     ellmer = setting("ORION_CHAT_ELLMER")
   )
 }

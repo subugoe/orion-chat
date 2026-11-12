@@ -104,3 +104,12 @@ test_that("the default model is the one the README names", {
   readme <- readLines("../README.md")
   expect_true(any(grepl(p$model, readme, fixed = TRUE)))
 })
+
+test_that("the privacy link defaults to GWDG's page only for GWDG", {
+  expect_match(provider_settings(fake_env())$privacy_url, "chat-ai/data-privacy", fixed = TRUE)
+  expect_identical(provider_settings(fake_env(ORION_CHAT_PROVIDER = "Example"))$privacy_url, "")
+  expect_identical(
+    provider_settings(fake_env(ORION_CHAT_PROVIDER = "Example", ORION_CHAT_PRIVACY_URL = "https://e.org/p"))$privacy_url,
+    "https://e.org/p"
+  )
+})

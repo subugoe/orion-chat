@@ -148,6 +148,16 @@ ui <- tagList(
     footer = tags$div(
       class = "sub-contact",
       tags$p(
+        glue(
+          "Your messages, the SQL and the result previews from orion-mcp are ",
+          "sent to {provider$label}"
+        ),
+        if (nzchar(provider$privacy_url)) {
+          tagList(" (", footer_link("how they handle data", provider$privacy_url), ")")
+        },
+        "; full results stay on this computer."
+      ),
+      tags$p(
         "Contact: Najko Jahn, ",
         tags$a(href = "mailto:najko.jahn@sub.uni-goettingen.de", "najko.jahn@sub.uni-goettingen.de")
       ),
