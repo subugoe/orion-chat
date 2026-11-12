@@ -122,6 +122,37 @@ greeting <- glue(
 # .noWS: no space between a link and the comma after it.
 footer_link <- \(text, href) tags$a(href = href, target = "_blank", text, .noWS = "outside")
 
+# Help next to the model menu: approval, where data goes, transcripts.
+help_text <- tagList(
+  tags$p(
+    "Queries run only after you approve them. Each cost estimate has a ",
+    "number; reply yes, or run #2 if there are several."
+  ),
+  tags$p(
+    glue(
+      "Your messages, the SQL and the result previews from orion-mcp are ",
+      "sent to {provider$label}",
+      if (nzchar(provider$privacy_url)) " (" else ". "
+    ),
+    if (nzchar(provider$privacy_url)) {
+      tagList(footer_link("how they handle data", provider$privacy_url), "). ")
+    },
+    "Full results stay on this computer."
+  ),
+  tags$p(
+    if (save_transcripts) {
+      glue(
+        "Each conversation, with its questions, SQL, costs and result ",
+        "previews, is saved as a Markdown file in ",
+        "{sub(path.expand('~'), '~', transcript_dir, fixed = TRUE)}. ",
+        "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
+      )
+    } else {
+      "Conversations are not saved; Transcript in the top bar downloads one."
+    }
+  )
+)
+
 ui <- tagList(
   tags$head(tags$script(src = "tables.js")),
   page_chat(
@@ -148,34 +179,15 @@ ui <- tagList(
         choices = model_choices,
         selected = provider$model,
         show_label = TRUE
+      ),
+      bslib::popover(
+        bslib::toolbar_input_button("help", "Help", icon = icon("circle-question"), tooltip = FALSE),
+        title = "How this chat works",
+        help_text
       )
     ),
     footer = tags$div(
       class = "sub-contact",
-      tags$p(
-        glue(
-          "Your messages, the SQL and the result previews from orion-mcp are ",
-          "sent to {provider$label}",
-          if (nzchar(provider$privacy_url)) " (" else ""
-        ),
-        if (nzchar(provider$privacy_url)) {
-          footer_link("how they handle data", provider$privacy_url)
-        },
-        if (nzchar(provider$privacy_url)) "); " else "; ",
-        "full results stay on this computer."
-      ),
-      tags$p(
-        if (save_transcripts) {
-          glue(
-            "Each conversation, with its questions, SQL, costs and result ",
-            "previews, is saved as a Markdown file in ",
-            "{sub(path.expand('~'), '~', transcript_dir, fixed = TRUE)}; ",
-            "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
-          )
-        } else {
-          "Conversations are not saved; Transcript in the top bar downloads one."
-        }
-      ),
       tags$p(
         "Contact: Najko Jahn, ",
         tags$a(href = "mailto:najko.jahn@sub.uni-goettingen.de", "najko.jahn@sub.uni-goettingen.de")
