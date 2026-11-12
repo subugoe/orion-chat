@@ -2,6 +2,11 @@
 # another OpenAI-compatible service or at a provider ellmer supports.
 # Tested in tests/test-provider.R.
 
+gwdg_privacy_url <- paste0(
+  "https://docs.hpc.gwdg.de/services/ai-services/chat-ai/",
+  "data-privacy/index.html"
+)
+
 # The settings, read once. `key` is a function, so the key is read only
 # when a request needs it and never stored in the list.
 provider_settings <- function(get = Sys.getenv) {
@@ -10,7 +15,9 @@ provider_settings <- function(get = Sys.getenv) {
     if (nzchar(value)) value else default
   }
   list(
-    base_url = setting("ORION_CHAT_BASE_URL", "https://chat-ai.academiccloud.de/v1"),
+    base_url = setting(
+      "ORION_CHAT_BASE_URL", "https://chat-ai.academiccloud.de/v1"
+    ),
     key = \() setting("ORION_CHAT_API_KEY", get("GWDG_API_KEY")),
     model = setting("ORION_CHAT_MODEL", "glm-5.3-flash"),
     label = setting("ORION_CHAT_PROVIDER", "GWDG"),
@@ -21,8 +28,7 @@ provider_settings <- function(get = Sys.getenv) {
     # How the service handles data; linked in the footer if known.
     privacy_url = setting(
       "ORION_CHAT_PRIVACY_URL",
-      if (nzchar(get("ORION_CHAT_PROVIDER"))) "" else
-        "https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html"
+      if (!nzchar(get("ORION_CHAT_PROVIDER"))) gwdg_privacy_url else ""
     ),
     ellmer = setting("ORION_CHAT_ELLMER")
   )
@@ -30,9 +36,14 @@ provider_settings <- function(get = Sys.getenv) {
 
 # The only place that builds a chat client. On the ellmer route the key
 # comes from that provider's own variable (e.g. ANTHROPIC_API_KEY).
-new_client <- function(model, provider = provider_settings(), system_prompt = NULL) {
+new_client <- function(model,
+                       provider = provider_settings(),
+                       system_prompt = NULL) {
   if (nzchar(provider$ellmer)) {
-    return(ellmer::chat(paste0(provider$ellmer, "/", model), system_prompt = system_prompt))
+    return(ellmer::chat(
+      paste0(provider$ellmer, "/", model),
+      system_prompt = system_prompt
+    ))
   }
   ellmer::chat_openai_compatible(
     base_url = provider$base_url,
@@ -64,7 +75,10 @@ model_choices_from <- function(models, configured) {
 # the configured model.
 list_models <- function(provider = provider_settings()) {
   fallback <- \(e) {
-    warning("Could not list ", provider$label, " models: ", conditionMessage(e), call. = FALSE)
+    warning(
+      "Could not list ", provider$label, " models: ", conditionMessage(e),
+      call. = FALSE
+    )
     set_names(provider$model, provider$model)
   }
   if (nzchar(provider$ellmer)) {
@@ -98,7 +112,9 @@ list_models <- function(provider = provider_settings()) {
 # this error), otherwise a short message for the user. Skipped on the
 # ellmer route.
 tool_choice_problem <- function(model, provider = provider_settings()) {
-  if (nzchar(provider$ellmer)) return(NULL)
+  if (nzchar(provider$ellmer)) {
+    return(NULL)
+  }
   res <- tryCatch(
     httr2::request(provider$base_url) |>
       httr2::req_url_path_append("chat/completions") |>
@@ -122,7 +138,9 @@ tool_choice_problem <- function(model, provider = provider_settings()) {
       httr2::req_perform(),
     error = \(e) conditionMessage(e)
   )
-  if (inherits(res, "httr2_response")) return(NULL)
+  if (inherits(res, "httr2_response")) {
+    return(NULL)
+  }
   if (
     str_detect(res, fixed("400")) &&
       str_detect(res, regex("tool choice|tool-call-parser", ignore_case = TRUE))

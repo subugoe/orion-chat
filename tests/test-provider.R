@@ -33,9 +33,13 @@ test_that("each setting overrides its default", {
 })
 
 test_that("ORION_CHAT_API_KEY wins over GWDG_API_KEY, which is the fallback", {
-  both <- provider_settings(fake_env(ORION_CHAT_API_KEY = "own", GWDG_API_KEY = "gwdg"))
+  both <- provider_settings(
+    fake_env(ORION_CHAT_API_KEY = "own", GWDG_API_KEY = "gwdg")
+  )
   expect_identical(both$key(), "own")
-  empty <- provider_settings(fake_env(ORION_CHAT_API_KEY = "", GWDG_API_KEY = "gwdg"))
+  empty <- provider_settings(
+    fake_env(ORION_CHAT_API_KEY = "", GWDG_API_KEY = "gwdg")
+  )
   expect_identical(empty$key(), "gwdg")
   none <- provider_settings(fake_env())
   expect_identical(none$key(), "")
@@ -43,20 +47,22 @@ test_that("ORION_CHAT_API_KEY wins over GWDG_API_KEY, which is the fallback", {
 
 test_that("the key is not stored in the settings", {
   p <- provider_settings(fake_env(GWDG_API_KEY = "secret-value"))
-  expect_false(any(grepl("secret-value", unlist(p[names(p) != "key"]), fixed = TRUE)))
+  others <- unlist(p[names(p) != "key"])
+  expect_false(any(str_detect(others, fixed("secret-value"))))
 })
 
 test_that("new_client() builds an OpenAI-compatible chat by default", {
   p <- provider_settings(fake_env(GWDG_API_KEY = "dummy"))
   chat <- new_client("some-model", p, system_prompt = "Be brief.")
-  expect_true(S7::S7_inherits(chat$get_provider(), ellmer:::ProviderOpenAICompatible))
-  expect_identical(chat$get_provider()@name, "GWDG")
-  expect_identical(chat$get_provider()@base_url, "https://chat-ai.academiccloud.de/v1")
+  provider <- chat$get_provider()
+  expect_true(S7::S7_inherits(provider, ellmer:::ProviderOpenAICompatible))
+  expect_identical(provider@name, "GWDG")
+  expect_identical(provider@base_url, "https://chat-ai.academiccloud.de/v1")
   expect_identical(chat$get_model(), "some-model")
   expect_identical(chat$get_system_prompt(), "Be brief.")
 })
 
-test_that("new_client() builds an Anthropic chat with ORION_CHAT_ELLMER=anthropic", {
+test_that("new_client() builds an Anthropic chat via ORION_CHAT_ELLMER", {
   withr::local_envvar(ANTHROPIC_API_KEY = "dummy")
   p <- provider_settings(fake_env(ORION_CHAT_ELLMER = "anthropic"))
   chat <- new_client("claude-sonnet-5-5", p, system_prompt = "Be brief.")
@@ -64,7 +70,7 @@ test_that("new_client() builds an Anthropic chat with ORION_CHAT_ELLMER=anthropi
   expect_identical(chat$get_model(), "claude-sonnet-5-5")
 })
 
-test_that("model_choices_from() keeps ready models and adds the configured one", {
+test_that("model_choices_from() keeps ready models, adds the configured one", {
   models <- list(
     list(id = "b-model", name = "b model", status = "ready"),
     list(id = "a-model", status = "ready"),
@@ -72,8 +78,14 @@ test_that("model_choices_from() keeps ready models and adds the configured one",
     list(id = "plain")
   )
   choices <- model_choices_from(models, "configured")
-  expect_identical(unname(choices), c("a-model", "b-model", "configured", "plain"))
-  expect_identical(names(choices), c("a-model", "b model", "configured", "plain"))
+  expect_identical(
+    unname(choices),
+    c("a-model", "b-model", "configured", "plain")
+  )
+  expect_identical(
+    names(choices),
+    c("a-model", "b model", "configured", "plain")
+  )
   expect_false("down" %in% choices)
   expect_identical(model_choices_from(list(), "x"), c(x = "x"))
   expect_length(model_choices_from(list(list(id = "x")), "x"), 1)
@@ -85,13 +97,18 @@ test_that("tool_choice_problem() is skipped on the ellmer route", {
 })
 
 test_that("list_models() offers only the configured model without a lister", {
-  p <- provider_settings(fake_env(ORION_CHAT_ELLMER = "nosuchprovider", ORION_CHAT_MODEL = "m1"))
+  p <- provider_settings(
+    fake_env(ORION_CHAT_ELLMER = "nosuchprovider", ORION_CHAT_MODEL = "m1")
+  )
   expect_identical(list_models(p), c(m1 = "m1"))
 })
 
 test_that("model_choices_from() keeps only models with text in and out", {
   models <- list(
-    list(id = "chat", input = list("text", "image"), output = list("text", "thought")),
+    list(
+      id = "chat",
+      input = list("text", "image"), output = list("text", "thought")
+    ),
     list(id = "embed", input = list("text"), output = list("embedding")),
     list(id = "speech", input = list("audio"), output = list("text")),
     list(id = "image-gen", input = list("text"), output = list("image"))
@@ -102,14 +119,18 @@ test_that("model_choices_from() keeps only models with text in and out", {
 test_that("the default model is the one the README names", {
   p <- provider_settings(fake_env())
   readme <- readLines("../README.md")
-  expect_true(any(grepl(p$model, readme, fixed = TRUE)))
+  expect_true(any(str_detect(readme, fixed(p$model))))
 })
 
 test_that("the privacy link defaults to GWDG's page only for GWDG", {
-  expect_match(provider_settings(fake_env())$privacy_url, "chat-ai/data-privacy", fixed = TRUE)
-  expect_identical(provider_settings(fake_env(ORION_CHAT_PROVIDER = "Example"))$privacy_url, "")
+  privacy_url <- \(...) provider_settings(fake_env(...))$privacy_url
+  expect_match(privacy_url(), "chat-ai/data-privacy", fixed = TRUE)
+  expect_identical(privacy_url(ORION_CHAT_PROVIDER = "Example"), "")
   expect_identical(
-    provider_settings(fake_env(ORION_CHAT_PROVIDER = "Example", ORION_CHAT_PRIVACY_URL = "https://e.org/p"))$privacy_url,
+    privacy_url(
+      ORION_CHAT_PROVIDER = "Example",
+      ORION_CHAT_PRIVACY_URL = "https://e.org/p"
+    ),
     "https://e.org/p"
   )
 })

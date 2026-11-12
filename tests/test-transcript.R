@@ -20,31 +20,48 @@ test_that("text only: header, headings, no system prompt", {
   expect_match(md, "Started: 2026-11-12 14:05", fixed = TRUE)
   expect_match(md, "Models: qwen3.5-397b-a17b, glm-5.3-flash", fixed = TRUE)
   expect_match(md, "## You\n\nWhat datasets are there?", fixed = TRUE)
-  expect_match(md, "## Assistant\n\nOpenAlex, Crossref and OpenAIRE.", fixed = TRUE)
+  expect_match(
+    md, "## Assistant\n\nOpenAlex, Crossref and OpenAIRE.",
+    fixed = TRUE
+  )
   expect_no_match(md, "SECRET")
 })
 
-test_that("a tool request shows the SQL verbatim and other arguments as a list", {
+test_that("a tool request shows the SQL verbatim, other arguments as a list", {
   request <- ContentToolRequest(
     id = "call_2", name = "orion_export_result",
     arguments = list(name = "q1", format = "csv")
   )
-  turns <- list(AssistantTurn(list(ContentText("Checking the cost."), estimate, request)))
+  turns <- list(
+    AssistantTurn(list(ContentText("Checking the cost."), estimate, request))
+  )
   md <- render_transcript(turns, meta)
   expect_match(md, "**Tool call:** `orion_estimate_query_cost`", fixed = TRUE)
-  expect_match(md, "```sql\nSELECT doi\nFROM openalex.works\nLIMIT 10\n```", fixed = TRUE)
+  expect_match(
+    md, "```sql\nSELECT doi\nFROM openalex.works\nLIMIT 10\n```",
+    fixed = TRUE
+  )
   expect_match(md, "- name: q1\n- format: csv", fixed = TRUE)
 })
 
-test_that("tool results go under the assistant turn, without an empty heading", {
+test_that("tool results go under the assistant turn, with no empty heading", {
   turns <- list(
     UserTurn(list(ContentText("How much would it cost?"))),
     AssistantTurn(list(estimate)),
-    UserTurn(list(ContentToolResult('{"gb_processed": 1.2}', request = estimate))),
+    UserTurn(list(
+      ContentToolResult('{"gb_processed": 1.2}', request = estimate)
+    )),
     AssistantTurn(list(ContentText("It scans 1.2 GB. Estimate #1.")))
   )
   md <- render_transcript(turns, meta)
-  expect_match(md, "**Tool result** (`orion_estimate_query_cost`):\n\n```\n{\"gb_processed\": 1.2}\n```", fixed = TRUE)
+  expect_match(
+    md,
+    paste0(
+      "**Tool result** (`orion_estimate_query_cost`):\n\n",
+      "```\n{\"gb_processed\": 1.2}\n```"
+    ),
+    fixed = TRUE
+  )
   expect_identical(str_count(md, fixed("## You")), 1L)
   expect_identical(str_count(md, fixed("## Assistant")), 1L)
   expect_no_match(md, "## You\n\n## ")
@@ -58,10 +75,16 @@ test_that("tool results go under the assistant turn, without an empty heading", 
 })
 
 test_that("errors and gate rejections are marked", {
-  run <- ContentToolRequest(id = "c3", name = "orion_run_bq_query", arguments = list(query = "SELECT 1"))
+  run <- ContentToolRequest(
+    id = "c3", name = "orion_run_bq_query",
+    arguments = list(query = "SELECT 1")
+  )
   rejected <- structure(
     class = c("ellmer_tool_reject", "rlang_error", "error", "condition"),
-    list(message = "Tool call rejected. Not run: the user has not approved this yet.")
+    list(message = paste(
+      "Tool call rejected.",
+      "Not run: the user has not approved this yet."
+    ))
   )
   turns <- list(
     AssistantTurn(list(run)),
@@ -72,9 +95,15 @@ test_that("errors and gate rejections are marked", {
     ))
   )
   md <- render_transcript(turns, meta)
-  expect_match(md, "**Rejected by the approval gate** (`orion_run_bq_query`)", fixed = TRUE)
+  expect_match(
+    md, "**Rejected by the approval gate** (`orion_run_bq_query`)",
+    fixed = TRUE
+  )
   expect_match(md, "not approved this yet", fixed = TRUE)
-  expect_match(md, "**Tool error** (`orion_run_bq_query`):\n\n```\nTable not found", fixed = TRUE)
+  expect_match(
+    md, "**Tool error** (`orion_run_bq_query`):\n\n```\nTable not found",
+    fixed = TRUE
+  )
   expect_match(md, "plain string error", fixed = TRUE)
 })
 
@@ -93,7 +122,10 @@ test_that("long results are cut with a note giving the full length", {
 test_that("non-text results, backticks and unknown content do not fail", {
   turns <- list(
     AssistantTurn(list(estimate)),
-    UserTurn(list(ContentToolResult(list(rows = 3, cols = list("a", "b")), request = estimate))),
+    UserTurn(list(ContentToolResult(
+      list(rows = 3, cols = list("a", "b")),
+      request = estimate
+    ))),
     AssistantTurn(list(
       ContentText("Here is code:\n```r\nx <- 1\n```"),
       ContentThinking("hidden reasoning"),
@@ -110,9 +142,15 @@ test_that("non-text results, backticks and unknown content do not fail", {
 test_that("a result whose text contains a fence gets a longer fence", {
   turns <- list(
     AssistantTurn(list(estimate)),
-    UserTurn(list(ContentToolResult("Show it in a ```sql block", request = estimate)))
+    UserTurn(list(
+      ContentToolResult("Show it in a ```sql block", request = estimate)
+    ))
   )
-  expect_match(render_transcript(turns, meta), "````\nShow it in a ```sql block\n````", fixed = TRUE)
+  expect_match(
+    render_transcript(turns, meta),
+    "````\nShow it in a ```sql block\n````",
+    fixed = TRUE
+  )
 })
 
 test_that("save_transcript() replaces the file in one step", {
@@ -121,5 +159,8 @@ test_that("save_transcript() replaces the file in one step", {
   save_transcript("first", path)
   save_transcript("second – ü", path)
   expect_identical(readLines(path, encoding = "UTF-8"), "second – ü")
-  expect_identical(list.files(dir, all.files = TRUE, no.. = TRUE), "orion-chat-test.md")
+  expect_identical(
+    list.files(dir, all.files = TRUE, no.. = TRUE),
+    "orion-chat-test.md"
+  )
 })

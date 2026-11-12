@@ -71,9 +71,11 @@ system_prompt <- glue(
 
 # orion-mcp, started with a config that holds only the orion-dbs server.
 docker <- find_docker()
-check_startup(key_set = nzchar(provider$ellmer) || nzchar(provider$key()), docker)
+key_set <- nzchar(provider$ellmer) || nzchar(provider$key())
+check_startup(key_set, docker)
 model_choices <- list_models(provider)
-export_dir <- path.expand(Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports"))
+export_dir <- Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports") |>
+  path.expand()
 dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
 # One transcript per browser session, rewritten after each reply.
 save_transcripts <- Sys.getenv("ORION_SAVE_TRANSCRIPTS", "1") != "0"
@@ -101,7 +103,7 @@ new_chat <- function(model, log, tools) {
   chat
 }
 
-# App 
+# App
 examples <- c(
   "Explore the data" = "What datasets are available in ORION-DBs?",
   "Check the cost" = "What share of works from the University of Göttingen and UMG were open access between 2018 and 2025?",
@@ -120,7 +122,9 @@ greeting <- glue(
 )
 
 # .noWS: no space between a link and the comma after it.
-footer_link <- \(text, href) tags$a(href = href, target = "_blank", text, .noWS = "outside")
+footer_link <- \(text, href) {
+  tags$a(href = href, target = "_blank", text, .noWS = "outside")
+}
 
 # Help next to the model menu: approval, where data goes, transcripts.
 help_text <- tagList(
@@ -144,7 +148,7 @@ help_text <- tagList(
       glue(
         "Each conversation, with its questions, SQL, costs and result ",
         "previews, is saved as a Markdown file in ",
-        "{sub(path.expand('~'), '~', transcript_dir, fixed = TRUE)}. ",
+        "{str_replace(transcript_dir, fixed(path.expand('~')), '~')}. ",
         "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
       )
     } else {
@@ -158,17 +162,28 @@ ui <- tagList(
   page_chat(
     id = "chat",
     title = app_title,
-    icon = tags$img(src = app_logo[["src"]], alt = app_logo[["alt"]], class = "sub-logo"),
+    icon = tags$img(
+      src = app_logo[["src"]], alt = app_logo[["alt"]], class = "sub-logo"
+    ),
     sidebar = FALSE,
-    # Top bar as on sub.uni-goettingen.de: short links, then the contrast toggle.
+    # Top bar as on sub.uni-goettingen.de: short links, then the contrast
+    # toggle.
     toolbar_global = bslib::toolbar(
       tags$nav(
         class = "sub-meta-nav", `aria-label` = "Links",
-        tags$a(href = "https://orion-dbs.community/", target = "_blank", "ORION-DBs"),
+        tags$a(
+          href = "https://orion-dbs.community/", target = "_blank", "ORION-DBs"
+        ),
         tags$a(href = provider$url, target = "_blank", provider$label),
-        tags$a(href = "https://github.com/subugoe/orion-chat", target = "_blank", "GitHub")
+        tags$a(
+          href = "https://github.com/subugoe/orion-chat", target = "_blank",
+          "GitHub"
+        )
       ),
-      downloadButton("save_transcript", "Transcript", class = "btn-sm sub-transcript"),
+      downloadButton(
+        "save_transcript", "Transcript",
+        class = "btn-sm sub-transcript"
+      ),
       bslib::input_dark_mode()
     ),
     # Model menu directly below the message box.
@@ -181,7 +196,10 @@ ui <- tagList(
         show_label = TRUE
       ),
       bslib::popover(
-        bslib::toolbar_input_button("help", "Help", icon = icon("circle-question"), tooltip = FALSE),
+        bslib::toolbar_input_button(
+          "help", "Help",
+          icon = icon("circle-question"), tooltip = FALSE
+        ),
         title = "How this chat works",
         help_text
       )
@@ -190,14 +208,19 @@ ui <- tagList(
       class = "sub-contact",
       tags$p(
         "Contact: Najko Jahn, ",
-        tags$a(href = "mailto:najko.jahn@sub.uni-goettingen.de", "najko.jahn@sub.uni-goettingen.de")
+        tags$a(
+          href = "mailto:najko.jahn@sub.uni-goettingen.de",
+          "najko.jahn@sub.uni-goettingen.de"
+        )
       ),
       tags$p(
         "Built in R with ",
         footer_link("shiny", "https://shiny.posit.co/"), ", ",
-        footer_link("shinychat", "https://posit-dev.github.io/shinychat/"), ", ",
+        footer_link("shinychat", "https://posit-dev.github.io/shinychat/"),
+        ", ",
         footer_link("ellmer", "https://ellmer.tidyverse.org/"), ", ",
-        footer_link("mcptools", "https://posit-dev.github.io/mcptools/"), " and ",
+        footer_link("mcptools", "https://posit-dev.github.io/mcptools/"),
+        " and ",
         footer_link("bslib", "https://rstudio.github.io/bslib/"),
         ". Models by ",
         footer_link(provider$label, provider$url),
@@ -208,7 +231,10 @@ ui <- tagList(
     # Wider than the default (680-760px) so SQL and tables have room;
     # gau.scss narrows prose and user messages within it.
     width = "min(clamp(720px, 60vw, 880px), 100%)",
-    theme = bslib::bs_bundle(page_chat_theme(), sass::sass_layer_file("gau.scss"))
+    theme = bslib::bs_bundle(
+      page_chat_theme(),
+      sass::sass_layer_file("gau.scss")
+    )
   )
 )
 
@@ -229,21 +255,31 @@ server <- function(input, output, session) {
   # all turns to the new client, also when it waits for a reply to end.
   started <- Sys.time()
   models_used <- provider$model
-  transcript <- \() render_transcript(
-    chat$client$get_turns(),
-    list(title = app_title, started = started, models = models_used)
-  )
+  transcript <- \() {
+    render_transcript(
+      chat$client$get_turns(),
+      list(title = app_title, started = started, models = models_used)
+    )
+  }
   output$save_transcript <- downloadHandler(
     filename = \() format(Sys.time(), "orion-chat-%Y%m%d-%H%M.md"),
     content = \(file) writeLines(transcript(), file, useBytes = TRUE)
   )
   if (save_transcripts) {
-    transcript_path <- file.path(transcript_dir, format(started, "orion-chat-%Y%m%d-%H%M%S.md"))
+    transcript_path <- file.path(
+      transcript_dir,
+      format(started, "orion-chat-%Y%m%d-%H%M%S.md")
+    )
     observeEvent(chat$status(), ignoreInit = TRUE, {
       if (chat$status() == "idle") {
         tryCatch(
           save_transcript(transcript(), transcript_path),
-          error = \(e) warning("Transcript not saved: ", conditionMessage(e), call. = FALSE)
+          error = \(e) {
+            warning(
+              "Transcript not saved: ", conditionMessage(e),
+              call. = FALSE
+            )
+          }
         )
       }
     })
@@ -262,7 +298,9 @@ server <- function(input, output, session) {
     }
     chat$set_client(new_chat(model, estimated, tools))
     selected_model <<- model
-    if (model != models_used[length(models_used)]) models_used <<- c(models_used, model)
+    if (model != models_used[length(models_used)]) {
+      models_used <<- c(models_used, model)
+    }
     label <- names(model_choices)[model_choices == model]
     showNotification(glue("Now using {label}."), duration = 3)
   })

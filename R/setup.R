@@ -42,7 +42,8 @@ patch_mcptools_timeout <- function(attempts = 1500) {
 
 # The docker binary: on the PATH, or where Docker Desktop puts it on macOS.
 # "" if there is none.
-find_docker <- function(candidates = c(Sys.which("docker"), "~/.docker/bin/docker")) {
+find_docker <- function(candidates = NULL) {
+  candidates <- candidates %||% c(Sys.which("docker"), "~/.docker/bin/docker")
   candidates <- path.expand(candidates[nzchar(candidates)])
   found <- candidates[file.exists(candidates)]
   if (length(found) == 0) "" else unname(found[[1]])
@@ -50,8 +51,8 @@ find_docker <- function(candidates = c(Sys.which("docker"), "~/.docker/bin/docke
 
 # Stop with a one-line message if something the app needs is missing.
 # `run` runs a docker command and returns its exit status.
-check_startup <- function(key_set, docker, image = orion_image,
-                          run = \(args) system2(docker, args, stdout = FALSE, stderr = FALSE)) {
+check_startup <- function(key_set, docker, image = orion_image, run = NULL) {
+  run <- run %||% \(args) system2(docker, args, stdout = FALSE, stderr = FALSE)
   stop_plain <- \(...) stop(paste0(...), call. = FALSE)
   if (!key_set) {
     stop_plain(
@@ -60,7 +61,10 @@ check_startup <- function(key_set, docker, image = orion_image,
     )
   }
   if (docker == "") {
-    stop_plain("Docker not found. Install Docker Desktop (or Docker Engine) and start it.")
+    stop_plain(
+      "Docker not found. Install Docker Desktop (or Docker Engine) and ",
+      "start it."
+    )
   }
   if (run("info") != 0) {
     stop_plain("Docker is not running. Start Docker Desktop and try again.")
@@ -74,8 +78,11 @@ check_startup <- function(key_set, docker, image = orion_image,
 # The mcptools config for the orion-dbs server only, as a list.
 # SCHEMA_REFRESH=0 makes orion-mcp use the schemas built into the image
 # instead of downloading them at start-up; `docker pull` updates them.
-orion_mcp_config <- function(docker, billing_project, export_dir,
-                             gcloud_dir = "~/.config/gcloud", image = orion_image) {
+orion_mcp_config <- function(docker,
+                             billing_project,
+                             export_dir,
+                             gcloud_dir = "~/.config/gcloud",
+                             image = orion_image) {
   args <- c(
     "run", "--rm", "-i",
     "-v", paste0(path.expand(gcloud_dir), ":/root/.config/gcloud:ro"),
@@ -95,17 +102,22 @@ orion_mcp_config <- function(docker, billing_project, export_dir,
 # to its orion-dbs entry so that no other server is attached. NULL if the
 # file has no such entry.
 orion_entry_from_file <- function(path = "~/.config/mcptools/config.json") {
-  if (!file.exists(path)) return(NULL)
+  if (!file.exists(path)) {
+    return(NULL)
+  }
   config <- tryCatch(
     jsonlite::fromJSON(path, simplifyVector = FALSE),
     error = \(e) NULL
   )
   entry <- config$mcpServers$`orion-dbs`
-  if (is.null(entry)) return(NULL)
+  if (is.null(entry)) {
+    return(NULL)
+  }
   list(mcpServers = list(`orion-dbs` = entry))
 }
 
-write_mcp_config <- function(config, path = tempfile("orion-mcp-", fileext = ".json")) {
+write_mcp_config <- function(config,
+                             path = tempfile("orion-mcp-", fileext = ".json")) {
   jsonlite::write_json(config, path, auto_unbox = TRUE, pretty = TRUE)
   path
 }

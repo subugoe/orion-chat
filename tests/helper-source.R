@@ -3,4 +3,6 @@ library(ellmer)
 library(glue)
 library(purrr)
 library(stringr)
-for (file in list.files("../R", pattern = "[.]R$", full.names = TRUE)) source(file)
+for (file in list.files("../R", pattern = "[.]R$", full.names = TRUE)) {
+  source(file)
+}

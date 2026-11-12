@@ -15,7 +15,11 @@ approval_regex <- local({
     "yes", "yep", "y", "ja", "jep", "ok", "okay", "sure", "go ahead", "go",
     "run it", "run", "proceed", "do it", "please do", "please run"
   ), "|")
-  number <- "(?:run(?:\\s+it)?\\s*)?(?:(?:no\\.?|number|nr\\.?)\\s*)?#?\\s*(\\d+)"
+  number <- paste0(
+    "(?:run(?:\\s+it)?\\s*)?",
+    "(?:(?:no\\.?|number|nr\\.?)\\s*)?",
+    "#?\\s*(\\d+)"
+  )
   regex(
     as.character(glue(
       "^\\s*(?:{please}[\\s,]+)?(?:{word})",
@@ -41,9 +45,13 @@ parse_approval <- function(text) {
 # in the orion server; the hash keeps long SQL usable as a key. NULL if the
 # tool call has no usable SQL.
 sql_key <- function(sql) {
-  if (!is.character(sql) || length(sql) != 1 || is.na(sql)) return(NULL)
+  if (!is.character(sql) || length(sql) != 1 || is.na(sql)) {
+    return(NULL)
+  }
   sql <- str_squish(sql)
-  if (sql == "") return(NULL)
+  if (sql == "") {
+    return(NULL)
+  }
   rlang::hash(sql)
 }
 
@@ -67,7 +75,9 @@ new_estimate_log <- function() {
 # again keeps its number.
 record_estimate <- function(log, sql, bytes, n_user_messages) {
   key <- sql_key(sql)
-  if (is.null(key)) return(NA_integer_)
+  if (is.null(key)) {
+    return(NA_integer_)
+  }
   record <- log$records[[key]]
   if (is.null(record)) {
     record <- list(
@@ -97,11 +107,15 @@ ask_again <- paste0(
 # same fields), `approval` the result of parse_approval() for the latest
 # user message, `n_user_messages` the number of user messages so far.
 gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval) {
-  if (!tool %in% paid_tools) return(gate_allow())
+  if (!tool %in% paid_tools) {
+    return(gate_allow())
+  }
 
   # No SQL argument: saves an already stored result.
   if (tool == "orion_save_result_to_bq") {
-    if (isTRUE(approval$approved)) return(gate_allow())
+    if (isTRUE(approval$approved)) {
+      return(gate_allow())
+    }
     return(gate_reject(
       "Not run: the user has not approved this yet. Say what will be saved ",
       "where, ask whether to go ahead, and wait for a yes."
@@ -128,11 +142,15 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval) {
     ))
   }
   if (!isTRUE(approval$approved)) {
-    return(gate_reject("Not run: the user has not approved this yet. ", ask_again))
+    return(gate_reject(
+      "Not run: the user has not approved this yet. ", ask_again
+    ))
   }
 
   if (!is.na(approval$number)) {
-    if (identical(as.integer(record$number), approval$number)) return(gate_allow())
+    if (identical(as.integer(record$number), approval$number)) {
+      return(gate_allow())
+    }
     return(gate_reject(
       "Not run: the user approved estimate #", approval$number, ", but this ",
       "SQL is estimate #", record$number, ". Run the SQL of estimate #",
@@ -142,13 +160,21 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval) {
 
   # A plain "yes" counts only if one estimate was made since the previous
   # approval (and before the user's latest message).
-  previous <- max(c(0L, estimated$approvals[estimated$approvals < n_user_messages]))
-  pending <- keep(estimated$records, \(r) r$last_at >= previous && r$last_at < n_user_messages)
-  if (length(pending) == 1 && names(pending) == sql_key) return(gate_allow())
+  approvals <- estimated$approvals
+  previous <- max(c(0L, approvals[approvals < n_user_messages]))
+  pending <- keep(
+    estimated$records,
+    \(r) r$last_at >= previous && r$last_at < n_user_messages
+  )
+  if (length(pending) == 1 && names(pending) == sql_key) {
+    return(gate_allow())
+  }
   numbers <- sort(map_int(pending, "number"))
+  open <- if (length(numbers) > 0) {
+    paste0(" (open estimates: #", str_flatten(numbers, ", #"), ")")
+  }
   gate_reject(
-    "Not run: it is not clear which estimate the user approved",
-    if (length(numbers) > 0) paste0(" (open estimates: #", str_flatten(numbers, ", #"), ")"),
+    "Not run: it is not clear which estimate the user approved", open,
     ". Ask the user which estimate number to run, for example 'run #2'."
   )
 }
@@ -168,19 +194,25 @@ latest_user_text <- function(turns) {
 # a ContentToolResult and pass through unchanged.
 number_estimates <- function(tools, log) {
   map(tools, \(tool) {
-    if (tool@name != "orion_estimate_query_cost") return(tool)
+    if (tool@name != "orion_estimate_query_cost") {
+      return(tool)
+    }
     ellmer::tool(
       function(query) {
         # Pass the value, not the symbol: mcptools tools re-evaluate their
         # arguments from match.call().
         result <- do.call(tool, list(query = query))
-        if (!is.character(result) || length(result) != 1) return(result)
+        if (!is.character(result) || length(result) != 1) {
+          return(result)
+        }
         bytes <- tryCatch(
           jsonlite::fromJSON(result)$bytes_processed,
           error = \(e) NULL
         ) %||% NA_real_
         number <- record_estimate(log, query, bytes, log$n_user_messages)
-        if (is.na(number)) return(result)
+        if (is.na(number)) {
+          return(result)
+        }
         paste0(
           result, "\n\nThis is Estimate #", number, ". Show 'Estimate #",
           number, "' with the cost, so the user can approve it by number."
