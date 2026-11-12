@@ -23,7 +23,7 @@ patch_mcptools_timeout()
 source("R/approval.R")
 source("R/transcript.R")
 
-approval_gate <- function(request, chat, log, tools) {
+approval_gate <- function(request, chat, log) {
   turns <- chat$get_turns()
   n <- length(user_messages(turns))
   log$n_user_messages <- n
@@ -32,9 +32,6 @@ approval_gate <- function(request, chat, log, tools) {
     parse_approval(latest_user_text(turns)),
     estimate = request@arguments$estimate
   )
-  if (identical(decision$reason, "not_estimated")) {
-    tool_reject(estimate_instead(tools, request@arguments$query))
-  }
   if (!decision$allow) tool_reject(decision$message)
   if (request@name %in% paid_tools) record_approval(log, n)
 }
@@ -65,7 +62,9 @@ system_prompt <- glue(
   "institutions are defined, years) as a short list the user can correct. ",
   "Then ask whether to run it.\n",
   "4. After it has run, answer the question in the first sentence, with ",
-  "the numbers, then give a short table if useful.\n\n",
+  "the numbers, then give a short table if useful. Report what the data ",
+  "shows; do not suggest causes, such as policies or events, that it does ",
+  "not show.\n\n",
   "Do not describe each tool call as you make it. If a tool call fails, ",
   "fix the cause once; if it fails again, stop and tell the user in one ",
   "sentence what went wrong. Ask the user a question before starting only ",
@@ -79,9 +78,9 @@ system_prompt <- glue(
   "dry-run, and you show the number and cost the tool returned. Show the ",
   "number with each estimate and, if there are several, ask which to run. The ",
   "user approves with 'yes' (one estimate), with numbers ('run #2', ",
-  "'run #2 and #3') or with 'run all'. To run an approved estimate, pass ",
-  "its number as `estimate` to the run or export tool instead of the ",
-  "SQL.\n\n",
+  "'run #2 and #3') or with 'run all'. The run, export and save-as-table ",
+  "tools take no SQL: pass the number of the approved estimate as ",
+  "`estimate`.\n\n",
   "Stored results (q1, q2, ...) live inside the orion-mcp server, a ",
   "separate R process in a Docker container. The user cannot reach them ",
   "from their own R session, so never say the data is 'in your R session' ",
@@ -125,7 +124,7 @@ orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
 new_chat <- function(model, log, tools) {
   chat <- new_client(model, provider, system_prompt)
   chat$set_tools(tools)
-  chat$on_tool_request(\(request) approval_gate(request, chat, log, tools))
+  chat$on_tool_request(\(request) approval_gate(request, chat, log))
   chat
 }
 

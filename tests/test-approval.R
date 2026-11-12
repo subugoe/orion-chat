@@ -95,11 +95,11 @@ test_that("gate_decision() with a single estimate", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
   key <- sql_key("SELECT 1")
-  # Never dry-run, or no SQL at all.
+  # No estimate number: the tools take no SQL.
   expect_false(decide(log, sql_key("SELECT 9"), 2L, "yes")$allow)
   expect_match(
     decide(log, NULL, 2L, "yes")$message,
-    "no estimate number and no SQL"
+    "This tool takes no SQL"
   )
   # Dry-run after the latest user message: the user has not seen it.
   expect_match(
@@ -166,59 +166,37 @@ test_that("an estimate number the tool never gave is refused clearly", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
   record_estimate(log, "SELECT 2", 20, 1L)
-  # The model names "Estimate #3" for SQL it never dry-ran: the app
-  # dry-runs that SQL itself (reason "not_estimated").
-  key <- request_key(list(estimate = 3L, query = "SELECT 3"), log)
+  # The model names "Estimate #3" for SQL it never dry-ran.
+  key <- request_key(list(estimate = 3L), log)
+  expect_null(key)
   result <- gate_decision(
     run, key, log, 2L, parse_approval("yes"),
     estimate = 3L
   )
   expect_false(result$allow)
-  expect_identical(result$reason, "not_estimated")
-  # Only a number, no SQL: say that the number does not exist.
-  result <- gate_decision(
-    run, NULL, log, 2L, parse_approval("yes"),
-    estimate = 3L
-  )
   expect_match(result$message, "there is no Estimate #3", fixed = TRUE)
   expect_match(result$message, "Existing estimates: #1, #2", fixed = TRUE)
   expect_match(result$message, "Only orion_estimate_query_cost", fixed = TRUE)
-  # Without any estimates.
   empty <- gate_decision(
     run, NULL, new_estimate_log(), 2L, parse_approval("yes"),
     estimate = 1L
   )
   expect_match(empty$message, "Existing estimates: none", fixed = TRUE)
-  # A wrong number with SQL that was estimated goes by the SQL.
-  key <- request_key(list(estimate = 7L, query = "SELECT 2"), log)
-  expect_true(
-    gate_decision(
-      run, key, log, 2L, parse_approval("run #2"),
-      estimate = 7L
-    )$allow
-  )
 })
 
-test_that("request_key() takes the estimate number before the SQL", {
+test_that("request_key() goes by the estimate number only", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
   record_estimate(log, "SELECT 2", 20, 1L)
   expect_identical(request_key(list(estimate = 2L), log), sql_key("SELECT 2"))
   expect_identical(request_key(list(estimate = 2), log), sql_key("SELECT 2"))
+  # SQL in the call does not count, even when it was estimated.
+  expect_null(request_key(list(query = "SELECT 2"), log))
   expect_identical(
     request_key(list(estimate = 1L, query = "SELECT 2"), log),
     sql_key("SELECT 1")
   )
-  expect_identical(
-    request_key(list(query = "SELECT  2"), log),
-    sql_key("SELECT 2")
-  )
   expect_null(request_key(list(estimate = 9L), log))
-  # An unknown number falls back to the SQL.
-  expect_identical(
-    request_key(list(estimate = 9L, query = "SELECT 2"), log),
-    sql_key("SELECT 2")
-  )
   expect_null(request_key(list(), log))
 })
 
@@ -303,7 +281,7 @@ test_that("number_estimates() numbers successful dry-runs only", {
   expect_identical(log$records[[sql_key("SELECT 1")]]$bytes, 123L)
 })
 
-test_that("run_by_estimate() passes the dry-run SQL for an estimate number", {
+test_that("run_by_estimate() replaces the SQL by an estimate number", {
   seen <- NULL
   run <- ellmer::tool(
     function(query, filename = NULL) {
@@ -326,48 +304,18 @@ test_that("run_by_estimate() passes the dry-run SQL for an estimate number", {
   tools <- run_by_estimate(list(run, free), log)
   expect_identical(tools[[2]], free)
   wrapped <- tools[[1]]
-  expect_named(wrapped@arguments@properties, c("query", "filename", "estimate"))
-  expect_false(wrapped@arguments@properties$query@required)
-  expect_match(wrapped@description, "estimate", fixed = TRUE)
+  # The model sees no query argument, and must give an estimate.
+  expect_named(wrapped@arguments@properties, c("estimate", "filename"))
+  expect_true(wrapped@arguments@properties$estimate@required)
+  expect_match(wrapped@description, "takes no SQL", fixed = TRUE)
 
   expect_identical(wrapped(estimate = 1L, filename = "a.csv"), "done")
   expect_identical(
     seen,
     list(query = "SELECT doi\nFROM works", filename = "a.csv")
   )
-  wrapped(query = "SELECT 1")
-  expect_identical(seen, list(query = "SELECT 1"))
-  wrapped(estimate = 7L, query = "SELECT 7")
-  expect_identical(seen, list(query = "SELECT 7"))
+  expect_error(wrapped(query = "SELECT 1"))
   missing <- wrapped(estimate = 7L)
   expect_s3_class(missing, "ellmer::ContentToolResult")
-  expect_match(missing@error, "no estimate #7")
-})
-
-test_that("estimate_instead() dry-runs and records the SQL, but runs nothing", {
-  fake <- ellmer::tool(
-    function(query) {
-      query <- lapply(match.call()[-1], eval)$query
-      if (query == "bad") stop("Syntax error at [1:1]")
-      jsonlite::toJSON(list(bytes_processed = 5e6), auto_unbox = TRUE)
-    },
-    name = "orion_estimate_query_cost", description = "Estimate.",
-    arguments = list(query = type_string("SQL"))
-  )
-  log <- new_estimate_log()
-  record_estimate(log, "SELECT 1", 10, 1L)
-  log$n_user_messages <- 2L
-  tools <- wrap_orion_tools(list(fake), log)
-
-  message <- estimate_instead(tools, "SELECT 3")
-  expect_match(message, "the app has dry-run it now", fixed = TRUE)
-  expect_match(message, "This is Estimate #2", fixed = TRUE)
-  expect_match(message, "Do not run it before the user replies", fixed = TRUE)
-  # Recorded at the current message, so it needs the user's next reply.
-  key <- sql_key("SELECT 3")
-  expect_identical(log$records[[key]]$seen_at, 2L)
-  expect_false(decide(log, key, 2L, "run #2")$allow)
-  expect_true(decide(log, key, 3L, "run #2")$allow)
-
-  expect_match(estimate_instead(tools, "bad"), "dry-run failed: .*Syntax error")
+  expect_match(missing@error, "no Estimate #7")
 })

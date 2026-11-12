@@ -107,14 +107,13 @@ estimate_key <- function(log, number) {
   if (length(key) == 1) key
 }
 
-# The key for a paid tool call: from its `estimate` number if that
-# estimate exists, otherwise from its SQL.
+# The key for a paid tool call: that of its `estimate` number, or NULL. In
+# this app the query tools take no SQL, only the number of an estimate.
 request_key <- function(arguments, log) {
   estimate <- arguments$estimate
-  key <- if (is.numeric(estimate) && length(estimate) == 1) {
+  if (is.numeric(estimate) && length(estimate) == 1) {
     estimate_key(log, estimate)
   }
-  key %||% sql_key(arguments$query)
 }
 
 # "#1, #2" for the estimates in the log, or "none".
@@ -128,11 +127,7 @@ record_approval <- function(log, n_user_messages) {
 }
 
 gate_allow <- function() list(allow = TRUE, message = NULL)
-# `reason` "not_estimated": the SQL was never dry-run; the app then dry-runs
-# it itself (see estimate_instead()).
-gate_reject <- function(..., reason = NA_character_) {
-  list(allow = FALSE, message = paste0(...), reason = reason)
-}
+gate_reject <- function(...) list(allow = FALSE, message = paste0(...))
 
 ask_again <- paste0(
   "Show the SQL, the estimated cost and the estimate number, ask ",
@@ -165,25 +160,20 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
     ))
   }
 
-  if (is.null(sql_key)) {
-    if (!is.null(estimate)) {
-      return(gate_reject(
-        "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
-        estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
-        "estimate numbers and costs. Dry-run the SQL with it, show the user ",
-        "the number and cost it returns, and wait for approval."
-      ))
-    }
+  record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
+  if (is.null(record) && !is.null(estimate)) {
     return(gate_reject(
-      "Not run: the tool call has no estimate number and no SQL. Pass the ",
-      "number of an approved estimate as 'estimate'."
+      "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
+      estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
+      "estimate numbers and costs. Dry-run the SQL with it, show the user ",
+      "the number and cost it returns, and wait for approval."
     ))
   }
-  record <- estimated$records[[sql_key]]
   if (is.null(record)) {
     return(gate_reject(
-      "Not run: this SQL has not been dry-run. ", ask_again,
-      reason = "not_estimated"
+      "Not run: pass the number of an approved estimate as 'estimate'. ",
+      "This tool takes no SQL; dry-run new SQL with ",
+      "orion_estimate_query_cost first. ", ask_again
     ))
   }
   if (record$seen_at >= n_user_messages) {
@@ -283,35 +273,30 @@ number_estimates <- function(tools, log) {
   })
 }
 
-# Give the tools that take SQL an `estimate` argument: the number of a
-# cost estimate, whose SQL is then passed on exactly as it was dry-run. The
-# model no longer has to copy the SQL, which it sometimes changes.
+# The tools that take SQL take the number of a cost estimate instead, and
+# run its SQL exactly as it was dry-run. The model cannot retype the SQL
+# (it often changed it slightly) or run SQL that was never estimated.
 run_by_estimate <- function(tools, log) {
   map(tools, \(tool) {
     arguments <- tool@arguments@properties
     if (!tool@name %in% paid_tools || is.null(arguments$query)) {
       return(tool)
     }
-    arguments$query@required <- FALSE
-    arguments$estimate <- ellmer::type_integer(
-      paste(
-        "Number of an approved cost estimate (Estimate #n).",
-        "Use this instead of query."
-      ),
-      required = FALSE
+    arguments <- c(
+      list(estimate = ellmer::type_integer(
+        "Number of the approved cost estimate (Estimate #n) to run."
+      )),
+      arguments[names(arguments) != "query"]
     )
     fun <- function() {
       args <- compact(as.list(environment()))
-      if (!is.null(args$estimate)) {
-        key <- estimate_key(log, args$estimate)
-        if (!is.null(key)) {
-          args$query <- log$records[[key]]$sql
-        } else if (is.null(args$query)) {
-          return(ellmer::ContentToolResult(
-            error = paste0("There is no estimate #", args$estimate, ".")
-          ))
-        }
+      key <- estimate_key(log, args$estimate)
+      if (is.null(key)) {
+        return(ellmer::ContentToolResult(
+          error = paste0("There is no Estimate #", args$estimate, ".")
+        ))
       }
+      args$query <- log$records[[key]]$sql
       args$estimate <- NULL
       do.call(tool, args)
     }
@@ -322,8 +307,9 @@ run_by_estimate <- function(tools, log) {
       name = tool@name,
       description = paste(
         tool@description,
-        "To run a query from a cost estimate, pass its number as `estimate`",
-        "instead of the SQL; the SQL is then used exactly as it was dry-run."
+        "In this app the tool takes no SQL: pass `estimate`, the number of",
+        "an approved cost estimate, and its SQL runs exactly as it was",
+        "dry-run."
       ),
       arguments = arguments,
       convert = tool@convert,
@@ -337,32 +323,4 @@ wrap_orion_tools <- function(tools, log) {
   tools |>
     number_estimates(log) |>
     run_by_estimate(log)
-}
-
-# The model tried to run SQL that was never dry-run (often with a number and
-# cost it made up). Dry-run it with the session's estimate tool, which
-# records it as the next estimate, and tell the model to present that
-# instead of guessing why the call failed. It cannot run before the user's
-# next message, since the estimate is newer than the user's last message.
-estimate_instead <- function(tools, sql) {
-  estimate <- detect(tools, \(tool) tool@name == "orion_estimate_query_cost")
-  result <- tryCatch(do.call(estimate, list(query = sql)), error = identity)
-  failed <- if (inherits(result, "error")) {
-    conditionMessage(result)
-  } else if (S7::S7_inherits(result, ellmer::ContentToolResult)) {
-    error <- result@error
-    if (inherits(error, "condition")) conditionMessage(error) else paste(error)
-  }
-  if (!is.null(failed)) {
-    return(paste0(
-      "Not run: this SQL had not been dry-run, and the dry-run failed: ",
-      failed
-    ))
-  }
-  paste0(
-    "Not run: this SQL had not been dry-run, so the app has dry-run it now. ",
-    "Present this estimate to the user (the SQL, its estimate number and ",
-    "cost) and ask whether to run it. Do not run it before the user ",
-    "replies.\n\n", result
-  )
 }
