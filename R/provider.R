@@ -12,8 +12,7 @@ provider_settings <- function(get = Sys.getenv) {
   list(
     base_url = setting("ORION_CHAT_BASE_URL", "https://chat-ai.academiccloud.de/v1"),
     key = \() setting("ORION_CHAT_API_KEY", get("GWDG_API_KEY")),
-    # Handled the estimate, confirm, run workflow most reliably in tests.
-    model = setting("ORION_CHAT_MODEL", "qwen3.5-397b-a17b"),
+    model = setting("ORION_CHAT_MODEL", "glm-5.3-flash"),
     label = setting("ORION_CHAT_PROVIDER", "GWDG"),
     url = setting(
       "ORION_CHAT_PROVIDER_URL",
