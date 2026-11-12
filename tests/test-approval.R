@@ -319,3 +319,67 @@ test_that("run_by_estimate() replaces the SQL by an estimate number", {
   expect_s3_class(missing, "ellmer::ContentToolResult")
   expect_match(missing@error, "no Estimate #7")
 })
+
+test_that("auto_run_bytes() reads ORION_AUTO_RUN_GB", {
+  expect_identical(auto_run_bytes("0.1"), 1e8)
+  expect_identical(auto_run_bytes("0"), 0)
+  expect_identical(auto_run_bytes("2"), 2e9)
+  expect_error(auto_run_bytes("lots"), "ORION_AUTO_RUN_GB")
+  expect_error(auto_run_bytes("-1"), "ORION_AUTO_RUN_GB")
+})
+
+test_that("small queries run without asking, only with orion_run_bq_query", {
+  log <- new_estimate_log(auto_run_bytes = 1e8)
+  # A lookup dry-run in this very reply (message 1), never shown to the user.
+  record_estimate(log, "SELECT ror_id FROM institution", 5e6, 1L)
+  small <- sql_key("SELECT ror_id FROM institution")
+  result <- decide(log, small, 1L, "What share of works ...")
+  expect_true(result$allow)
+  expect_true(result$unasked)
+  # Writing a file or a table always needs an approval.
+  export <- "orion_export_bq_query"
+  expect_false(decide(log, small, 1L, "What share ...", tool = export)$allow)
+  table <- "orion_query_to_table"
+  expect_false(decide(log, small, 1L, "What share ...", tool = table)$allow)
+  # Large or unknown size: approval as before.
+  record_estimate(log, "SELECT big", 15e9, 1L)
+  record_estimate(log, "SELECT unknown", NA_real_, 1L)
+  expect_false(decide(log, sql_key("SELECT big"), 1L, "anything")$allow)
+  expect_false(decide(log, sql_key("SELECT unknown"), 1L, "anything")$allow)
+  # Turned off.
+  off <- new_estimate_log(auto_run_bytes = 0)
+  record_estimate(off, "SELECT 1", 5e6, 1L)
+  expect_false(decide(off, sql_key("SELECT 1"), 1L, "anything")$allow)
+})
+
+test_that("small lookups do not make a plain yes ambiguous", {
+  log <- new_estimate_log(auto_run_bytes = 1e8)
+  record_estimate(log, "SELECT lookup", 5e6, 1L)
+  record_estimate(log, "SELECT main", 15e9, 1L)
+  main <- sql_key("SELECT main")
+  approved <- decide(log, main, 2L, "yes")
+  expect_true(approved$allow)
+  expect_false(approved$unasked)
+  # Two large estimates still need a number.
+  record_estimate(log, "SELECT other", 20e9, 1L)
+  expect_false(decide(log, main, 2L, "yes")$allow)
+  expect_true(decide(log, main, 2L, "run #2")$allow)
+})
+
+test_that("the estimate result tells the model when it may run unasked", {
+  fake <- ellmer::tool(
+    function(query) {
+      query <- lapply(match.call()[-1], eval)$query
+      size <- if (query == "SELECT small") 5e6 else 15e9
+      jsonlite::toJSON(list(bytes_processed = size), auto_unbox = TRUE)
+    },
+    name = "orion_estimate_query_cost", description = "Estimate.",
+    arguments = list(query = type_string("SQL"))
+  )
+  log <- new_estimate_log(auto_run_bytes = 1e8)
+  estimate <- number_estimates(list(fake), log)[[1]]
+  expect_match(estimate(query = "SELECT small"), "without asking the user")
+  big <- estimate(query = "SELECT big")
+  expect_match(big, "so the user can approve it by number")
+  expect_no_match(big, "without asking")
+})

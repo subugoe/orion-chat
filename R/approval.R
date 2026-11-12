@@ -71,12 +71,36 @@ sql_key <- function(sql) {
 #              SQL was first and last dry-run
 #   approvals: user-message counts of messages that released a paid call
 #   n_user_messages: the count when the current tool call was requested
-new_estimate_log <- function() {
+#   auto_run_bytes: estimates below this size run with orion_run_bq_query
+#              without asking (small lookups); 0 turns this off
+new_estimate_log <- function(auto_run_bytes = 0) {
   log <- new.env(parent = emptyenv())
   log$records <- list()
   log$approvals <- integer()
   log$n_user_messages <- 0L
+  log$auto_run_bytes <- auto_run_bytes
   log
+}
+
+# ORION_AUTO_RUN_GB as bytes: queries whose estimate is below it run
+# without asking. Default 0.1 GB; 0 turns it off.
+auto_run_bytes <- function(value = Sys.getenv("ORION_AUTO_RUN_GB", "0.1")) {
+  gb <- suppressWarnings(as.numeric(value))
+  if (length(gb) != 1 || is.na(gb) || gb < 0) {
+    stop(
+      "ORION_AUTO_RUN_GB must be a number of GB, 0 or more (got '", value,
+      "').",
+      call. = FALSE
+    )
+  }
+  gb * 1e9
+}
+
+# Whether an estimate is small enough to run without asking.
+runs_unasked <- function(record, log) {
+  limit <- log$auto_run_bytes %||% 0
+  bytes <- record$bytes
+  is.numeric(bytes) && length(bytes) == 1 && !is.na(bytes) && bytes < limit
 }
 
 # Record a successful dry-run and return its number. Running the same SQL
@@ -126,7 +150,11 @@ record_approval <- function(log, n_user_messages) {
   log$approvals <- union(log$approvals, n_user_messages)
 }
 
-gate_allow <- function() list(allow = TRUE, message = NULL)
+# `unasked`: allowed because the query is small, not because the user
+# approved it; such runs do not count as approvals.
+gate_allow <- function(unasked = FALSE) {
+  list(allow = TRUE, message = NULL, unasked = unasked)
+}
 gate_reject <- function(...) list(allow = FALSE, message = paste0(...))
 
 ask_again <- paste0(
@@ -176,6 +204,11 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
       "orion_estimate_query_cost first. ", ask_again
     ))
   }
+  # Small lookups run without asking. Exports and tables always need an
+  # approval, since they write files or tables.
+  if (tool == "orion_run_bq_query" && runs_unasked(record, estimated)) {
+    return(gate_allow(unasked = TRUE))
+  }
   if (record$seen_at >= n_user_messages) {
     return(gate_reject(
       "Not run: this exact SQL was dry-run after the user's last message, ",
@@ -202,12 +235,15 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
 
   # "yes" or "run all" cover the estimates made since the previous approval
   # (and before the user's latest message); a plain "yes" only if there is
-  # just one.
+  # just one. Small lookups do not count, unless this call is one.
   approvals <- estimated$approvals
   previous <- max(c(0L, approvals[approvals < n_user_messages]))
   pending <- keep(
     estimated$records,
-    \(r) r$last_at >= previous && r$last_at < n_user_messages
+    \(r) {
+      r$last_at >= previous && r$last_at < n_user_messages &&
+        (!runs_unasked(r, estimated) || identical(r, record))
+    }
   )
   covered <- length(pending) == 1 || isTRUE(approval$all)
   if (sql_key %in% names(pending) && covered) {
@@ -256,6 +292,15 @@ number_estimates <- function(tools, log) {
         number <- record_estimate(log, query, bytes, log$n_user_messages)
         if (is.na(number)) {
           return(result)
+        }
+        if (runs_unasked(log$records[[sql_key(query)]], log)) {
+          return(paste0(
+            result, "\n\nThis is Estimate #", number, ". It is small ",
+            "enough to run with orion_run_bq_query (estimate = ", number,
+            ") without asking the user. Ignore the instruction above to ",
+            "present it and ask; use it as a lookup and mention it in one ",
+            "line."
+          ))
         }
         paste0(
           result, "\n\nThis is Estimate #", number, ". Show 'Estimate #",

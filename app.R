@@ -33,7 +33,9 @@ approval_gate <- function(request, chat, log) {
     estimate = request@arguments$estimate
   )
   if (!decision$allow) tool_reject(decision$message)
-  if (request@name %in% paid_tools) record_approval(log, n)
+  if (request@name %in% paid_tools && !decision$unasked) {
+    record_approval(log, n)
+  }
 }
 
 # Model service: GWDG unless .Renviron says otherwise (see R/provider.R)
@@ -41,6 +43,19 @@ source("R/provider.R")
 provider <- provider_settings()
 
 # Chat client
+# Queries under this size (ORION_AUTO_RUN_GB, default 0.1 GB) run without
+# asking; see R/approval.R.
+auto_run <- auto_run_bytes()
+lookup_rule <- if (auto_run > 0) {
+  glue(
+    "Dry-run the lookup too; if its estimate is under {auto_run / 1e9} GB, ",
+    "run it right away with its estimate number, without asking the user, ",
+    "and mention it in one line."
+  )
+} else {
+  "Lookups need the user's approval like any other query."
+}
+
 system_prompt <- glue(
   "You help researchers answer questions with ORION-DBs (open research ",
   "information on Google BigQuery) through the orion_* tools. Follow the ",
@@ -50,16 +65,19 @@ system_prompt <- glue(
   "steps:\n",
   "1. Read the schema only of the tables you will use. Do not list or ",
   "inspect more than you need.\n",
-  "2. Write one query that answers the whole question, instead of running ",
-  "separate lookup queries first. Never type identifiers such as ROR IDs, ",
-  "OpenAlex IDs or DOIs from memory; they are often wrong. Use identifiers ",
-  "the user gave or that a result in this chat showed. Otherwise match ",
-  "organisations by name inside the query and group the result by the ",
-  "matched names, so the user sees what was counted.\n",
+  "2. Identify organisations by identifier, not by name patterns. Never ",
+  "type identifiers such as ROR IDs, OpenAlex IDs or DOIs from memory; ",
+  "they are often wrong. If the user did not give them, find the records ",
+  "with one small lookup (for example on the institution table, matching ",
+  "the name) and pick the right ones. {lookup_rule} Then write one query ",
+  "that answers the whole ",
+  "question and filters on the ROR IDs you found (numeric IDs in results ",
+  "can be missing).\n",
   "3. Dry-run it and present it once: the SQL, one sentence on what it ",
   "does, the estimate number and cost, and the choices you made that ",
-  "affect the result (data source and snapshot, how open access and the ",
-  "institutions are defined, years) as a short list the user can correct. ",
+  "affect the result (data source and snapshot, the institutions with ",
+  "their names and ROR IDs, how open access is defined, years) as a short ",
+  "list the user can correct. ",
   "Then ask whether to run it.\n",
   "4. After it has run, answer the question in the first sentence, with ",
   "the numbers, then give a short table if useful. Report what the data ",
@@ -142,7 +160,12 @@ steps <- glue('{seq_along(examples)}. <span class="suggestion" title="{names(exa
 greeting <- glue(
   "Hi there! I can help you explore **ORION-DBs**, open research ",
   "information on Google BigQuery. Before running any query, I'll show ",
-  "you the SQL and what it will cost. Nothing runs until you say **yes**.",
+  "you the SQL and what it will cost. Nothing runs until you say **yes**",
+  if (auto_run > 0) {
+    glue(", except small lookups under {auto_run / 1e9} GB.")
+  } else {
+    "."
+  },
   "\n\n{str_flatten(steps, '\n')}"
 )
 
@@ -165,7 +188,13 @@ help_text <- tags$ul(
     "Approve.", "You see the SQL and its cost first. Reply yes to run it. ",
     "If there are several, reply with the numbers, such as run #2 and #3, ",
     "or run all. Cost checks are free; queries are billed to your Google ",
-    "Cloud project."
+    "Cloud project.",
+    if (auto_run > 0) {
+      glue(
+        " Small lookups under {auto_run / 1e9} GB, such as finding an ",
+        "institution's ROR ID, run without asking."
+      )
+    }
   ),
   help_item(
     "Export.", "Ask for a CSV file to get the full result. Files go to ",
@@ -290,7 +319,7 @@ server <- function(input, output, session) {
   # Each browser session gets its own chat and dry-run record. The orion-mcp
   # container is shared by all sessions of this R process, and with it the
   # stored results (q1, q2, ...) and the server's dry-run cache.
-  estimated <- new_estimate_log()
+  estimated <- new_estimate_log(auto_run)
   tools <- wrap_orion_tools(orion_tools, estimated)
   # The model the menu is on (the revert target when a switch fails).
   selected_model <- provider$model
