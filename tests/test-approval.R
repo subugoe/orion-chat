@@ -156,7 +156,9 @@ test_that("user_messages() skips turns that carry only tool results", {
 
 test_that("number_estimates() numbers successful dry-runs only", {
   fake <- ellmer::tool(
+    # Reads its arguments as mcptools' tool functions do.
     function(query) {
+      query <- lapply(match.call()[-1], eval)$query
       if (query == "bad") return(ContentToolResult(error = "refused"))
       jsonlite::toJSON(list(bytes_processed = 123), auto_unbox = TRUE)
     },

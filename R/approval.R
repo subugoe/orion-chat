@@ -171,7 +171,9 @@ number_estimates <- function(tools, log) {
     if (tool@name != "orion_estimate_query_cost") return(tool)
     ellmer::tool(
       function(query) {
-        result <- tool(query = query)
+        # Pass the value, not the symbol: mcptools tools re-evaluate their
+        # arguments from match.call().
+        result <- do.call(tool, list(query = query))
         if (!is.character(result) || length(result) != 1) return(result)
         bytes <- tryCatch(
           jsonlite::fromJSON(result)$bytes_processed,
