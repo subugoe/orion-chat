@@ -107,14 +107,20 @@ estimate_key <- function(log, number) {
   if (length(key) == 1) key
 }
 
-# The key for a paid tool call: from its `estimate` number if given,
-# otherwise from its SQL.
+# The key for a paid tool call: from its `estimate` number if that
+# estimate exists, otherwise from its SQL.
 request_key <- function(arguments, log) {
   estimate <- arguments$estimate
-  if (is.numeric(estimate) && length(estimate) == 1) {
-    return(estimate_key(log, estimate))
+  key <- if (is.numeric(estimate) && length(estimate) == 1) {
+    estimate_key(log, estimate)
   }
-  sql_key(arguments$query)
+  key %||% sql_key(arguments$query)
+}
+
+# "#1, #2" for the estimates in the log, or "none".
+estimate_list <- function(log) {
+  numbers <- sort(map_int(log$records, "number"))
+  if (length(numbers) == 0) "none" else paste0("#", str_flatten(numbers, ", #"))
 }
 
 record_approval <- function(log, n_user_messages) {
@@ -137,7 +143,9 @@ how_to_approve <- paste0(
 # Whether a tool call may run. `estimated` is the log (or a list with the
 # same fields), `approval` the result of parse_approval() for the latest
 # user message, `n_user_messages` the number of user messages so far.
-gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval) {
+# `estimate` is the estimate number the tool call names, if any.
+gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
+                          estimate = NULL) {
   if (!tool %in% paid_tools) {
     return(gate_allow())
   }
@@ -153,13 +161,21 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval) {
     ))
   }
 
-  if (is.null(sql_key)) {
+  record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
+  if (is.null(record) && !is.null(estimate)) {
     return(gate_reject(
-      "Not run: the tool call has neither an 'estimate' number of an ",
-      "existing estimate nor SQL in 'query'. Pass the estimate number."
+      "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
+      estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
+      "estimate numbers and costs. Dry-run the SQL with it, show the user ",
+      "the number and cost it returns, and wait for approval."
     ))
   }
-  record <- estimated$records[[sql_key]]
+  if (is.null(sql_key)) {
+    return(gate_reject(
+      "Not run: the tool call has no estimate number and no SQL. Pass the ",
+      "number of an approved estimate as 'estimate'."
+    ))
+  }
   if (is.null(record)) {
     return(gate_reject(
       "Not run: this SQL has not been dry-run. Pass the number of the ",
@@ -285,12 +301,13 @@ run_by_estimate <- function(tools, log) {
       args <- compact(as.list(environment()))
       if (!is.null(args$estimate)) {
         key <- estimate_key(log, args$estimate)
-        if (is.null(key)) {
+        if (!is.null(key)) {
+          args$query <- log$records[[key]]$sql
+        } else if (is.null(args$query)) {
           return(ellmer::ContentToolResult(
             error = paste0("There is no estimate #", args$estimate, ".")
           ))
         }
-        args$query <- log$records[[key]]$sql
       }
       args$estimate <- NULL
       do.call(tool, args)

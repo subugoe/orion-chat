@@ -97,7 +97,10 @@ test_that("gate_decision() with a single estimate", {
   key <- sql_key("SELECT 1")
   # Never dry-run, or no SQL at all.
   expect_false(decide(log, sql_key("SELECT 9"), 2L, "yes")$allow)
-  expect_match(decide(log, NULL, 2L, "yes")$message, "neither")
+  expect_match(
+    decide(log, NULL, 2L, "yes")$message,
+    "no estimate number and no SQL"
+  )
   # Dry-run after the latest user message: the user has not seen it.
   expect_match(
     decide(log, key, 1L, "yes")$message,
@@ -159,6 +162,36 @@ test_that("the rejection tells the model how the user can approve", {
   expect_match(message, "run all", fixed = TRUE)
 })
 
+test_that("an estimate number the tool never gave is refused clearly", {
+  log <- new_estimate_log()
+  record_estimate(log, "SELECT 1", 10, 1L)
+  record_estimate(log, "SELECT 2", 20, 1L)
+  # The model names "Estimate #3" for SQL it never dry-ran.
+  key <- request_key(list(estimate = 3L, query = "SELECT 3"), log)
+  result <- gate_decision(
+    run, key, log, 2L, parse_approval("yes"),
+    estimate = 3L
+  )
+  expect_false(result$allow)
+  expect_match(result$message, "there is no Estimate #3", fixed = TRUE)
+  expect_match(result$message, "Existing estimates: #1, #2", fixed = TRUE)
+  expect_match(result$message, "Only orion_estimate_query_cost", fixed = TRUE)
+  # Without any estimates.
+  empty <- gate_decision(
+    run, NULL, new_estimate_log(), 2L, parse_approval("yes"),
+    estimate = 1L
+  )
+  expect_match(empty$message, "Existing estimates: none", fixed = TRUE)
+  # A wrong number with SQL that was estimated goes by the SQL.
+  key <- request_key(list(estimate = 7L, query = "SELECT 2"), log)
+  expect_true(
+    gate_decision(
+      run, key, log, 2L, parse_approval("run #2"),
+      estimate = 7L
+    )$allow
+  )
+})
+
 test_that("request_key() takes the estimate number before the SQL", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
@@ -174,6 +207,11 @@ test_that("request_key() takes the estimate number before the SQL", {
     sql_key("SELECT 2")
   )
   expect_null(request_key(list(estimate = 9L), log))
+  # An unknown number falls back to the SQL.
+  expect_identical(
+    request_key(list(estimate = 9L, query = "SELECT 2"), log),
+    sql_key("SELECT 2")
+  )
   expect_null(request_key(list(), log))
 })
 
@@ -292,6 +330,8 @@ test_that("run_by_estimate() passes the dry-run SQL for an estimate number", {
   )
   wrapped(query = "SELECT 1")
   expect_identical(seen, list(query = "SELECT 1"))
+  wrapped(estimate = 7L, query = "SELECT 7")
+  expect_identical(seen, list(query = "SELECT 7"))
   missing <- wrapped(estimate = 7L)
   expect_s3_class(missing, "ellmer::ContentToolResult")
   expect_match(missing@error, "no estimate #7")

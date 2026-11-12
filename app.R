@@ -29,7 +29,8 @@ approval_gate <- function(request, chat, log) {
   log$n_user_messages <- n
   decision <- gate_decision(
     request@name, request_key(request@arguments, log), log, n,
-    parse_approval(latest_user_text(turns))
+    parse_approval(latest_user_text(turns)),
+    estimate = request@arguments$estimate
   )
   if (!decision$allow) tool_reject(decision$message)
   if (request@name %in% paid_tools) record_approval(log, n)
@@ -54,8 +55,11 @@ system_prompt <- glue(
   "columns or selecting fewer columns. Then ask which strategy to run. ",
   "When the request is already specific, skip the comparison and follow ",
   "the normal workflow.\n\n",
-  "Each cost estimate has a number (Estimate #1, #2, ...). Show the number ",
-  "with each estimate and, if there are several, ask which to run. The ",
+  "Each cost estimate has a number (Estimate #1, #2, ...), given by ",
+  "orion_estimate_query_cost. Never give a query a number or a cost ",
+  "yourself: every query you ask the user to approve must have been ",
+  "dry-run, and you show the number and cost the tool returned. Show the ",
+  "number with each estimate and, if there are several, ask which to run. The ",
   "user approves with 'yes' (one estimate), with numbers ('run #2', ",
   "'run #2 and #3') or with 'run all'. To run an approved estimate, pass ",
   "its number as `estimate` to the run or export tool instead of the ",
