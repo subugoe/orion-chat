@@ -112,6 +112,45 @@ gwdg_models <- function() {
 
 model_choices <- gwdg_models()
 
+# A tiny probe request: can this model take tools? Returns NULL if it can
+# (or if the problem is only rate limiting, which the chat will show),
+# otherwise a short message for the user.
+tool_choice_problem <- function(model) {
+  res <- tryCatch(
+    httr2::request(gwdg_url) |>
+      httr2::req_url_path_append("chat/completions") |>
+      httr2::req_auth_bearer_token(gwdg_key()) |>
+      httr2::req_body_json(list(
+        model = model,
+        messages = list(list(role = "user", content = "Hi")),
+        tools = list(list(
+          type = "function",
+          `function` = list(
+            name = "noop",
+            description = "Do nothing.",
+            parameters = list(type = "object", properties = list())
+          )
+        )),
+        tool_choice = "auto",
+        max_tokens = 1
+      )) |>
+      # Include the body, or the error message is only "HTTP 400 Bad Request."
+      httr2::req_error(body = \(resp) httr2::resp_body_string(resp)) |>
+      httr2::req_perform(),
+    error = \(e) conditionMessage(e)
+  )
+  if (inherits(res, "httr2_response")) return(NULL)
+  if (
+    str_detect(res, fixed("400")) &&
+      str_detect(res, regex("tool choice|tool-call-parser", ignore_case = TRUE))
+  ) {
+    glue(
+      "{model} is not available right now: it can't call tools, which this ",
+      "app needs. Try another model, or try again later."
+    )
+  }
+}
+
 # Chat client
 system_prompt <- glue(
   "You help researchers query ORION-DBs (open research information on ",
@@ -235,16 +274,27 @@ ui <- tagList(
 server <- function(input, output, session) {
   # Each browser session gets its own chat and dry-run record.
   estimated <- new.env()
+  # The model the menu is on (the revert target when a switch fails).
+  selected_model <- default_model
   chat <- chat_server(
     "chat", new_chat(default_model, estimated),
     greeting = greeting, history = FALSE
   )
 
   # Switching keeps the conversation; the new model sees the earlier turns.
-  # A switch during a reply takes effect once the reply is done.
+  # A switch during a reply takes effect once the reply is done. Some models
+  # can't call tools; the probe reverts those before the chat fails.
   observeEvent(input$model, ignoreInit = TRUE, {
-    chat$set_client(new_chat(input$model, estimated))
-    label <- names(model_choices)[model_choices == input$model]
+    model <- input$model
+    problem <- tool_choice_problem(model)
+    if (!is.null(problem)) {
+      showNotification(problem, type = "error", duration = 10)
+      updateSelectInput(session, "model", selected = selected_model)
+      return()
+    }
+    chat$set_client(new_chat(model, estimated))
+    selected_model <<- model
+    label <- names(model_choices)[model_choices == model]
     showNotification(glue("Now using {label}."), duration = 3)
   })
 }
