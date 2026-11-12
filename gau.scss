@@ -145,6 +145,17 @@ header.shiny-chat-page-header {
   }
 }
 
+// Help popover: a little wider than Bootstrap's 276px, a plain list.
+.sub-help {
+  --bs-popover-max-width: 22rem;
+  .sub-help-list {
+    margin: 0;
+    padding-left: 1rem;
+    li + li { margin-top: 0.5rem; }
+  }
+  code { font-size: 0.8125rem; color: inherit; background: none; padding: 0; }
+}
+
 // Phones: smaller bars, links hidden, logo and toggle only.
 @media (max-width: 576px) {
   .shiny-chat-page { --shiny-chat-page-header-height: 112px; }

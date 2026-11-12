@@ -126,34 +126,49 @@ footer_link <- \(text, href) {
   tags$a(href = href, target = "_blank", text, .noWS = "outside")
 }
 
-# Help next to the model menu: approval, where data goes, transcripts.
-help_text <- tagList(
-  tags$p(
-    "Nothing runs until you approve it. Each cost estimate has a number: ",
-    "reply yes, or run #2 if there are several."
+# Help next to the model menu: how to use the chat, in the order a first
+# conversation goes. Set-up details stay in the README.
+home_path <- \(path) str_replace(path, fixed(path.expand("~")), "~")
+help_item <- \(lead, ...) tags$li(tags$b(lead), " ", ...)
+help_text <- tags$ul(
+  class = "sub-help-list",
+  help_item(
+    "Ask.", "Write your question in plain language. The model finds the ",
+    "tables and writes the SQL."
   ),
-  tags$p(
+  help_item(
+    "Approve.", "You see the SQL and its cost first. Reply yes to run it, ",
+    "or run #2 if there are several. Cost checks are free; queries are ",
+    "billed to your Google Cloud project."
+  ),
+  help_item(
+    "Export.", "Ask for a CSV file to get the full result. Files go to ",
+    tags$code(home_path(export_dir), .noWS = "after"), "."
+  ),
+  help_item(
+    "Switch models.", "Pick another model in the menu at any time; the ",
+    "conversation continues."
+  ),
+  help_item(
+    "Save chat.", "Downloads the conversation as a Markdown file.",
+    if (save_transcripts) {
+      paste(
+        " A copy is also saved after each reply, in the transcripts",
+        "folder next to your exports."
+      )
+    }
+  ),
+  help_item(
+    "Privacy.",
     glue(
-      "Your messages, the SQL and the result previews from orion-mcp are ",
-      "sent to {provider$label}",
+      "Your messages, the SQL and short result previews go to ",
+      "{provider$label}",
       if (nzchar(provider$privacy_url)) " (" else ". "
     ),
     if (nzchar(provider$privacy_url)) {
       tagList(footer_link("how they handle data", provider$privacy_url), "). ")
     },
-    "Full results stay on this computer."
-  ),
-  tags$p(
-    if (save_transcripts) {
-      glue(
-        "Each chat is saved as Markdown in ",
-        "{str_replace(transcript_dir, fixed(path.expand('~')), '~')}, ",
-        "with the questions, SQL, costs and result previews. ",
-        "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
-      )
-    } else {
-      "Conversations are not saved; Save chat downloads the current one."
-    }
+    "Full results stay on your computer."
   )
 )
 
@@ -206,7 +221,9 @@ ui <- tagList(
           `aria-label` = "Help", icon("circle-question")
         ),
         title = "How this chat works",
-        help_text
+        help_text,
+        placement = "top",
+        options = list(customClass = "sub-help")
       )
     ),
     footer = tags$div(
