@@ -23,7 +23,7 @@ patch_mcptools_timeout()
 source("R/approval.R")
 source("R/transcript.R")
 
-approval_gate <- function(request, chat, log) {
+approval_gate <- function(request, chat, log, tools) {
   turns <- chat$get_turns()
   n <- length(user_messages(turns))
   log$n_user_messages <- n
@@ -32,6 +32,9 @@ approval_gate <- function(request, chat, log) {
     parse_approval(latest_user_text(turns)),
     estimate = request@arguments$estimate
   )
+  if (identical(decision$reason, "not_estimated")) {
+    tool_reject(estimate_instead(tools, request@arguments$query))
+  }
   if (!decision$allow) tool_reject(decision$message)
   if (request@name %in% paid_tools) record_approval(log, n)
 }
@@ -42,19 +45,34 @@ provider <- provider_settings()
 
 # Chat client
 system_prompt <- glue(
-  "You help researchers query ORION-DBs (open research information on ",
-  "Google BigQuery) through the orion_* tools. Follow the tool ",
-  "descriptions exactly. Queries only run after the user explicitly ",
+  "You help researchers answer questions with ORION-DBs (open research ",
+  "information on Google BigQuery) through the orion_* tools. Follow the ",
+  "tool descriptions exactly. Queries only run after the user explicitly ",
   "approves them in the chat.\n\n",
-  "When the user is exploring or the best approach is unclear, act as an ",
-  "advisor: propose two or three alternative strategies (e.g. different ",
-  "datasets, identifiers such as ROR IDs or DOIs, or ways to filter), ",
-  "dry-run each with orion_estimate_query_cost, and compare them in a ",
-  "short table with data source, GB scanned, estimated cost, and pros and ",
-  "cons. Point out ways to scan less data, such as filtering on partition ",
-  "columns or selecting fewer columns. Then ask which strategy to run. ",
-  "When the request is already specific, skip the comparison and follow ",
-  "the normal workflow.\n\n",
+  "Aim for one query that answers the question, and get there in few ",
+  "steps:\n",
+  "1. Read the schema only of the tables you will use. Do not list or ",
+  "inspect more than you need.\n",
+  "2. Write one query that answers the whole question, instead of running ",
+  "separate lookup queries first. Never type identifiers such as ROR IDs, ",
+  "OpenAlex IDs or DOIs from memory; they are often wrong. Use identifiers ",
+  "the user gave or that a result in this chat showed. Otherwise match ",
+  "organisations by name inside the query and group the result by the ",
+  "matched names, so the user sees what was counted.\n",
+  "3. Dry-run it and present it once: the SQL, one sentence on what it ",
+  "does, the estimate number and cost, and the choices you made that ",
+  "affect the result (data source and snapshot, how open access and the ",
+  "institutions are defined, years) as a short list the user can correct. ",
+  "Then ask whether to run it.\n",
+  "4. After it has run, answer the question in the first sentence, with ",
+  "the numbers, then give a short table if useful.\n\n",
+  "Do not describe each tool call as you make it. If a tool call fails, ",
+  "fix the cause once; if it fails again, stop and tell the user in one ",
+  "sentence what went wrong. Ask the user a question before starting only ",
+  "if the request is ambiguous in a way that changes the result, and then ",
+  "ask one question with a suggested default. Offer alternative ",
+  "strategies (at most two, each dry-run, compared in a short table) only ",
+  "when the user asks for options.\n\n",
   "Each cost estimate has a number (Estimate #1, #2, ...), given by ",
   "orion_estimate_query_cost. Never give a query a number or a cost ",
   "yourself: every query you ask the user to approve must have been ",
@@ -107,7 +125,7 @@ orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
 new_chat <- function(model, log, tools) {
   chat <- new_client(model, provider, system_prompt)
   chat$set_tools(tools)
-  chat$on_tool_request(\(request) approval_gate(request, chat, log))
+  chat$on_tool_request(\(request) approval_gate(request, chat, log, tools))
   chat
 }
 

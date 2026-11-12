@@ -128,7 +128,11 @@ record_approval <- function(log, n_user_messages) {
 }
 
 gate_allow <- function() list(allow = TRUE, message = NULL)
-gate_reject <- function(...) list(allow = FALSE, message = paste0(...))
+# `reason` "not_estimated": the SQL was never dry-run; the app then dry-runs
+# it itself (see estimate_instead()).
+gate_reject <- function(..., reason = NA_character_) {
+  list(allow = FALSE, message = paste0(...), reason = reason)
+}
 
 ask_again <- paste0(
   "Show the SQL, the estimated cost and the estimate number, ask ",
@@ -161,26 +165,25 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
     ))
   }
 
-  record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
-  if (is.null(record) && !is.null(estimate)) {
-    return(gate_reject(
-      "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
-      estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
-      "estimate numbers and costs. Dry-run the SQL with it, show the user ",
-      "the number and cost it returns, and wait for approval."
-    ))
-  }
   if (is.null(sql_key)) {
+    if (!is.null(estimate)) {
+      return(gate_reject(
+        "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
+        estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
+        "estimate numbers and costs. Dry-run the SQL with it, show the user ",
+        "the number and cost it returns, and wait for approval."
+      ))
+    }
     return(gate_reject(
       "Not run: the tool call has no estimate number and no SQL. Pass the ",
       "number of an approved estimate as 'estimate'."
     ))
   }
+  record <- estimated$records[[sql_key]]
   if (is.null(record)) {
     return(gate_reject(
-      "Not run: this SQL has not been dry-run. Pass the number of the ",
-      "estimate as 'estimate' instead of the SQL, or dry-run this SQL with ",
-      "orion_estimate_query_cost. ", ask_again
+      "Not run: this SQL has not been dry-run. ", ask_again,
+      reason = "not_estimated"
     ))
   }
   if (record$seen_at >= n_user_messages) {
@@ -334,4 +337,32 @@ wrap_orion_tools <- function(tools, log) {
   tools |>
     number_estimates(log) |>
     run_by_estimate(log)
+}
+
+# The model tried to run SQL that was never dry-run (often with a number and
+# cost it made up). Dry-run it with the session's estimate tool, which
+# records it as the next estimate, and tell the model to present that
+# instead of guessing why the call failed. It cannot run before the user's
+# next message, since the estimate is newer than the user's last message.
+estimate_instead <- function(tools, sql) {
+  estimate <- detect(tools, \(tool) tool@name == "orion_estimate_query_cost")
+  result <- tryCatch(do.call(estimate, list(query = sql)), error = identity)
+  failed <- if (inherits(result, "error")) {
+    conditionMessage(result)
+  } else if (S7::S7_inherits(result, ellmer::ContentToolResult)) {
+    error <- result@error
+    if (inherits(error, "condition")) conditionMessage(error) else paste(error)
+  }
+  if (!is.null(failed)) {
+    return(paste0(
+      "Not run: this SQL had not been dry-run, and the dry-run failed: ",
+      failed
+    ))
+  }
+  paste0(
+    "Not run: this SQL had not been dry-run, so the app has dry-run it now. ",
+    "Present this estimate to the user (the SQL, its estimate number and ",
+    "cost) and ask whether to run it. Do not run it before the user ",
+    "replies.\n\n", result
+  )
 }

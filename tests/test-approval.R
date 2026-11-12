@@ -166,13 +166,20 @@ test_that("an estimate number the tool never gave is refused clearly", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
   record_estimate(log, "SELECT 2", 20, 1L)
-  # The model names "Estimate #3" for SQL it never dry-ran.
+  # The model names "Estimate #3" for SQL it never dry-ran: the app
+  # dry-runs that SQL itself (reason "not_estimated").
   key <- request_key(list(estimate = 3L, query = "SELECT 3"), log)
   result <- gate_decision(
     run, key, log, 2L, parse_approval("yes"),
     estimate = 3L
   )
   expect_false(result$allow)
+  expect_identical(result$reason, "not_estimated")
+  # Only a number, no SQL: say that the number does not exist.
+  result <- gate_decision(
+    run, NULL, log, 2L, parse_approval("yes"),
+    estimate = 3L
+  )
   expect_match(result$message, "there is no Estimate #3", fixed = TRUE)
   expect_match(result$message, "Existing estimates: #1, #2", fixed = TRUE)
   expect_match(result$message, "Only orion_estimate_query_cost", fixed = TRUE)
@@ -335,4 +342,32 @@ test_that("run_by_estimate() passes the dry-run SQL for an estimate number", {
   missing <- wrapped(estimate = 7L)
   expect_s3_class(missing, "ellmer::ContentToolResult")
   expect_match(missing@error, "no estimate #7")
+})
+
+test_that("estimate_instead() dry-runs and records the SQL, but runs nothing", {
+  fake <- ellmer::tool(
+    function(query) {
+      query <- lapply(match.call()[-1], eval)$query
+      if (query == "bad") stop("Syntax error at [1:1]")
+      jsonlite::toJSON(list(bytes_processed = 5e6), auto_unbox = TRUE)
+    },
+    name = "orion_estimate_query_cost", description = "Estimate.",
+    arguments = list(query = type_string("SQL"))
+  )
+  log <- new_estimate_log()
+  record_estimate(log, "SELECT 1", 10, 1L)
+  log$n_user_messages <- 2L
+  tools <- wrap_orion_tools(list(fake), log)
+
+  message <- estimate_instead(tools, "SELECT 3")
+  expect_match(message, "the app has dry-run it now", fixed = TRUE)
+  expect_match(message, "This is Estimate #2", fixed = TRUE)
+  expect_match(message, "Do not run it before the user replies", fixed = TRUE)
+  # Recorded at the current message, so it needs the user's next reply.
+  key <- sql_key("SELECT 3")
+  expect_identical(log$records[[key]]$seen_at, 2L)
+  expect_false(decide(log, key, 2L, "run #2")$allow)
+  expect_true(decide(log, key, 3L, "run #2")$allow)
+
+  expect_match(estimate_instead(tools, "bad"), "dry-run failed: .*Syntax error")
 })
