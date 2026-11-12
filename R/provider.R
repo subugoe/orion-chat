@@ -19,7 +19,8 @@ provider_settings <- function(get = Sys.getenv) {
       "ORION_CHAT_BASE_URL", "https://chat-ai.academiccloud.de/v1"
     ),
     key = \() setting("ORION_CHAT_API_KEY", get("GWDG_API_KEY")),
-    model = setting("ORION_CHAT_MODEL", "glm-5.3-flash"),
+    # Fastest of the GWDG models tested on the query workflow (2026-11-12).
+    model = setting("ORION_CHAT_MODEL", "deepseek-v4.1-flash-1017"),
     label = setting("ORION_CHAT_PROVIDER", "GWDG"),
     url = setting(
       "ORION_CHAT_PROVIDER_URL",

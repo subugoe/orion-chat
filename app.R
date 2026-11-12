@@ -55,6 +55,15 @@ lookup_rule <- if (auto_run > 0) {
 } else {
   "Lookups need the user's approval like any other query."
 }
+small_main_rule <- if (auto_run > 0) {
+  glue(
+    " If the estimate of this query is also under {auto_run / 1e9} GB, ",
+    "run it right away instead, and show the SQL and its cost with the ",
+    "answer."
+  )
+} else {
+  ""
+}
 
 system_prompt <- glue(
   "You help researchers answer questions with ORION-DBs (open research ",
@@ -78,11 +87,18 @@ system_prompt <- glue(
   "affect the result (data source and snapshot, the institutions with ",
   "their names and ROR IDs, how open access is defined, years) as a short ",
   "list the user can correct. ",
-  "Then ask whether to run it.\n",
+  "Then ask whether to run it.{small_main_rule}\n",
   "4. After it has run, answer the question in the first sentence, with ",
   "the numbers, then give a short table if useful. Report what the data ",
   "shows; do not suggest causes, such as policies or events, that it does ",
   "not show.\n\n",
+  "Do not calculate numbers yourself. Put shares, percentages, totals and ",
+  "differences into the SQL (for example SAFE_DIVIDE, and ROLLUP for ",
+  "totals), so they come back in the result. For breakdowns of a stored ",
+  "result use orion_result_count, orion_result_summary or ",
+  "orion_result_slice (free). Every number you report must appear in a ",
+  "tool result; if one is missing, say so or get it with another ",
+  "query.\n\n",
   "Do not describe each tool call as you make it. If a tool call fails, ",
   "fix the cause once; if it fails again, stop and tell the user in one ",
   "sentence what went wrong. Ask the user a question before starting only ",
@@ -104,9 +120,10 @@ system_prompt <- glue(
   "from their own R session, so never say the data is 'in your R session' ",
   "and never write code that uses q1, q2, ... as R objects. When the user ",
   "wants to plot or analyse a result in R, export it with ",
-  "orion_export_result (free) and give R code that reads the exported ",
-  "file, e.g. read.csv(\"oa_by_year.csv\"), noting that the file is in the ",
-  "app's export folder (by default ~/Downloads/orion-exports).\n\n",
+  "orion_export_result (free) and give R code in tidyverse style that ",
+  "reads the exported file, e.g. readr::read_csv(\"oa_by_year.csv\") ",
+  "followed by dplyr and ggplot2, noting that the file is in the app's ",
+  "export folder (by default ~/Downloads/orion-exports).\n\n",
   "Write in a plain, factual style. Never use emojis or decorative ",
   "symbols (such as ✅, ❌, 🚀, ⚠️, 📊), not even in headings, lists or ",
   "tables; use words instead (e.g. 'yes'/'no', 'Note:')."
