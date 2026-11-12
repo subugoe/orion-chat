@@ -5,7 +5,7 @@ Shiny app for asking questions about [ORION-DBs](https://orion-dbs.community/) i
 ORION-DBs is a growing collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery.
 Safeguards check every query, show its cost in advance, and run nothing without approval.
 
-![The app showing two dry-run SQL queries with their estimated cost and asking for approval before running them](home.png)
+![The app showing a dry-run SQL query on the open access status of articles by the University of Göttingen and UMG, 2020–2025, with its estimated cost, and asking for approval before running it](home.png)
 
 ## Setup
 
