@@ -13,17 +13,9 @@ library(stringr)
 app_title <- "ORION-DBs AI chat interface"
 app_logo <- c(src = "logo-sub.svg", alt = "SUB Göttingen")
 
-# Setup
-# mcptools waits only 4 s per MCP reply; orion-mcp needs ~10 s to start.
-local({
-  f <- mcptools:::mcp_transport_stdio_send
-  src <- str_flatten(deparse(body(f)), "\n")
-  if (!str_detect(src, fixed("max_attempts <- 1500"))) {
-    stopifnot(str_detect(src, fixed("max_attempts <- 20")))
-    body(f) <- str2lang(str_replace(src, fixed("max_attempts <- 20"), "max_attempts <- 1500"))
-    assignInNamespace("mcp_transport_stdio_send", f, ns = "mcptools")
-  }
-})
+# Setup (see R/setup.R)
+source("R/setup.R")
+patch_mcptools_timeout()
 
 # Enforce approval: paid tools run only after the user approved the
 # numbered estimate (see R/approval.R). The orion server itself refuses SQL
@@ -68,8 +60,6 @@ gwdg_models <- function() {
   choices <- set_names(ids, names)[!duplicated(ids)]
   choices[order(names(choices))]
 }
-
-model_choices <- gwdg_models()
 
 # A tiny probe request: can this model take tools? Returns NULL if it can
 # (or if the problem is only rate limiting, which the chat will show),
@@ -134,14 +124,30 @@ system_prompt <- glue(
   "wants to plot or analyse a result in R, export it with ",
   "orion_export_result (free) and give R code that reads the exported ",
   "file, e.g. read.csv(\"oa_by_year.csv\"), noting that the file is in the ",
-  "export folder they mounted for orion-mcp.\n\n",
+  "app's export folder (by default ~/Downloads/orion-exports).\n\n",
   "Write in a plain, factual style. Never use emojis or decorative ",
   "symbols (such as ✅, ❌, 🚀, ⚠️, 📊), not even in headings, lists or ",
   "tables; use words instead (e.g. 'yes'/'no', 'Note:')."
 )
 
-message("Starting the orion-mcp container (10-30 s) ...")
-orion_tools <- mcp_tools()
+# orion-mcp, started with a config that holds only the orion-dbs server.
+docker <- find_docker()
+check_startup(key_set = nzchar(gwdg_key()), docker)
+model_choices <- gwdg_models()
+export_dir <- path.expand(Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports"))
+dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
+mcp_config <- if (!nzchar(billing_project)) orion_entry_from_file()
+if (is.null(mcp_config)) {
+  if (!nzchar(billing_project)) {
+    message("BQ_BILLING_PROJECT is not set: only schema browsing will work.")
+  }
+  mcp_config <- orion_mcp_config(docker, billing_project, export_dir)
+} else {
+  message("Using the orion-dbs entry in ~/.config/mcptools/config.json.")
+}
+message("Starting the orion-mcp container ...")
+orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
 
 # A chat with the orion tools and the approval gate. `log` and `tools` are
 # shared by all clients of a browser session, so estimates stay valid after

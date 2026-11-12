@@ -16,27 +16,21 @@ Tested on macOS only. The packages and their minimum versions are listed in `DES
 ```r
 install.packages("pak")
 pak::local_install_deps()  # run in the orion-chat folder
-file.edit("~/.Renviron")  # add GWDG_API_KEY=..., then restart R
+file.edit("~/.Renviron")
 ```
 
-orion-mcp is started via `~/.config/mcptools/config.json`, in the same format as the Claude Desktop config:
+Add these lines to `~/.Renviron`, then restart R:
 
-```json
-{
-  "mcpServers": {
-    "orion-dbs": {
-      "command": "/Users/YOUR_USERNAME/.docker/bin/docker",
-      "args": [
-        "run", "--rm", "-i",
-        "-v", "/Users/YOUR_USERNAME/.config/gcloud:/root/.config/gcloud:ro",
-        "-v", "/Users/YOUR_USERNAME/Downloads/orion-exports:/data/exports",
-        "-e", "BQ_BILLING_PROJECT=YOUR_PROJECT_ID",
-        "ghcr.io/subugoe/orion-mcp:latest"
-      ]
-    }
-  }
-}
 ```
+GWDG_API_KEY=...
+BQ_BILLING_PROJECT=your-google-cloud-project-id
+# Optional, the folder for exports; this is the default:
+ORION_EXPORT_DIR=~/Downloads/orion-exports
+```
+
+The app starts the orion-mcp container itself. It mounts your Google Cloud credentials from `~/.config/gcloud` (read-only) and the export folder, which it creates if needed. Without `BQ_BILLING_PROJECT` the app still starts, but only schema browsing works. The container uses the table schemas built into the image; `docker pull ghcr.io/subugoe/orion-mcp:latest` updates the image and the schemas.
+
+If `BQ_BILLING_PROJECT` is not set and `~/.config/mcptools/config.json` has an `orion-dbs` entry (the set-up described in earlier versions of this README), the app uses that entry and ignores the other servers in the file.
 
 ## Usage
 
