@@ -25,67 +25,21 @@ local({
   }
 })
 
-# Enforce approval
+# Enforce approval: paid tools run only after the user approved the
+# numbered estimate (see R/approval.R). The orion server itself refuses SQL
+# that has not been dry-run at all.
+source("R/approval.R")
 
-paid_tools <- c(
-  "orion_run_bq_query", "orion_export_bq_query",
-  "orion_query_to_table", "orion_save_result_to_bq"
-)
-
-approval_pattern <- regex(
-  "^\\s*(yes|y|ja|jep|ok|okay|sure|go|go ahead|run|run it|proceed|do it|please do|please run)\\b",
-  ignore_case = TRUE
-)
-
-# Messages the user typed (tool results are stored as user turns without text).
-user_messages <- function(chat) {
-  keep(chat$get_turns(), \(turn) turn@role == "user" && str_trim(turn@text) != "")
-}
-
-latest_user_text <- function(chat) {
-  messages <- user_messages(chat)
-  if (length(messages) == 0) "" else messages[[length(messages)]]@text
-}
-
-# Remember when each SQL first passed a dry run (as a count of user messages),
-# ignoring whitespace like the orion server does.
-remember_estimate <- function(result, chat, estimated) {
-  request <- result@request
-  if (request@name == "orion_estimate_query_cost" && is.null(result@error)) {
-    key <- str_squish(request@arguments$query)
-    estimated[[key]] <- estimated[[key]] %||% length(user_messages(chat))
-  }
-}
-
-# Paid tools need a "yes" written after the user could see the dry-run SQL.
-# The orion server itself refuses SQL that has not been dry-run at all.
-approval_gate <- function(request, chat, estimated) {
-  if (!request@name %in% paid_tools) return(invisible())
-
-  sql <- request@arguments$query
-  if (!is.null(sql)) {
-    seen_at <- estimated[[str_squish(sql)]]
-    if (is.null(seen_at)) {
-      tool_reject(glue(
-        "Not run: this SQL has not been dry-run. Call orion_estimate_query_cost ",
-        "with exactly this SQL, show the SQL and the estimated cost, ask ",
-        "'Shall I run this query?', and wait for a yes."
-      ))
-    }
-    if (seen_at >= length(user_messages(chat))) {
-      tool_reject(glue(
-        "Not run: this exact SQL was dry-run after the user's last message, ",
-        "so the user has not seen it. Show the SQL and the estimated cost, ",
-        "ask 'Shall I run this query?', and wait for a yes."
-      ))
-    }
-  }
-  if (!str_detect(latest_user_text(chat), approval_pattern)) {
-    tool_reject(glue(
-      "Not run: the user has not approved this yet. Show the SQL and the ",
-      "estimated cost, ask 'Shall I run this query?', and wait for a yes."
-    ))
-  }
+approval_gate <- function(request, chat, log) {
+  turns <- chat$get_turns()
+  n <- length(user_messages(turns))
+  log$n_user_messages <- n
+  decision <- gate_decision(
+    request@name, sql_key(request@arguments$query), log, n,
+    parse_approval(latest_user_text(turns))
+  )
+  if (!decision$allow) tool_reject(decision$message)
+  if (request@name %in% paid_tools) record_approval(log, n)
 }
 
 # Models
@@ -171,6 +125,8 @@ system_prompt <- glue(
   "columns or selecting fewer columns. Then ask which strategy to run. ",
   "When the request is already specific, skip the comparison and follow ",
   "the normal workflow.\n\n",
+  "Each cost estimate has a number (Estimate #1, #2, ...). Show the number ",
+  "with each estimate and, if there are several, ask which number to run.\n\n",
   "Stored results (q1, q2, ...) live inside the orion-mcp server, a ",
   "separate R process in a Docker container. The user cannot reach them ",
   "from their own R session, so never say the data is 'in your R session' ",
@@ -187,18 +143,18 @@ system_prompt <- glue(
 message("Starting the orion-mcp container (10-30 s) ...")
 orion_tools <- mcp_tools()
 
-# A chat with the orion tools and the approval gate. `estimated` is shared
-# across model switches, so dry runs stay valid after changing the model.
-new_chat <- function(model, estimated) {
+# A chat with the orion tools and the approval gate. `log` and `tools` are
+# shared by all clients of a browser session, so estimates stay valid after
+# changing the model.
+new_chat <- function(model, log, tools) {
   chat <- chat_openai_compatible(
     base_url = gwdg_url,
     model = model,
     credentials = gwdg_key,
     system_prompt = system_prompt
   )
-  chat$set_tools(orion_tools)
-  chat$on_tool_result(\(result) remember_estimate(result, chat, estimated))
-  chat$on_tool_request(\(request) approval_gate(request, chat, estimated))
+  chat$set_tools(tools)
+  chat$on_tool_request(\(request) approval_gate(request, chat, log))
   chat
 }
 
@@ -278,11 +234,12 @@ ui <- tagList(
 
 server <- function(input, output, session) {
   # Each browser session gets its own chat and dry-run record.
-  estimated <- new.env()
+  estimated <- new_estimate_log()
+  tools <- number_estimates(orion_tools, estimated)
   # The model the menu is on (the revert target when a switch fails).
   selected_model <- default_model
   chat <- chat_server(
-    "chat", new_chat(default_model, estimated),
+    "chat", new_chat(default_model, estimated, tools),
     greeting = greeting, history = FALSE
   )
 
@@ -297,7 +254,7 @@ server <- function(input, output, session) {
       updateSelectInput(session, "model", selected = selected_model)
       return()
     }
-    chat$set_client(new_chat(model, estimated))
+    chat$set_client(new_chat(model, estimated, tools))
     selected_model <<- model
     label <- names(model_choices)[model_choices == model]
     showNotification(glue("Now using {label}."), duration = 3)
