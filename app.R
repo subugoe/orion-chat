@@ -83,34 +83,80 @@ approval_gate <- function(request, chat, estimated) {
   }
 }
 
-# Chat client 
-my_chat <- chat_openai_compatible(
-  base_url = "https://chat-ai.academiccloud.de/v1",
-  model = "qwen3.5-397b-a17b",
-  credentials = \() Sys.getenv("GWDG_API_KEY"),
-  system_prompt = glue(
-    "You help researchers query ORION-DBs (open research information on ",
-    "Google BigQuery) through the orion_* tools. Follow the tool ",
-    "descriptions exactly. Queries only run after the user explicitly ",
-    "approves them in the chat.\n\n",
-    "When the user is exploring or the best approach is unclear, act as an ",
-    "advisor: propose two or three alternative strategies (e.g. different ",
-    "datasets, identifiers such as ROR IDs or DOIs, or ways to filter), ",
-    "dry-run each with orion_estimate_query_cost, and compare them in a ",
-    "short table with data source, GB scanned, estimated cost, and pros and ",
-    "cons. Point out ways to scan less data, such as filtering on partition ",
-    "columns or selecting fewer columns. Then ask which strategy to run. ",
-    "When the request is already specific, skip the comparison and follow ",
-    "the normal workflow."
+# Models
+gwdg_url <- "https://chat-ai.academiccloud.de/v1"
+gwdg_key <- \() Sys.getenv("GWDG_API_KEY")
+default_model <- "glm-5.3-flash"
+
+# Models GWDG serves right now, as c("Display name" = "id"). Falls back to
+# the default model if the list can't be fetched.
+gwdg_models <- function() {
+  models <- tryCatch(
+    httr2::request(gwdg_url) |>
+      httr2::req_url_path_append("models") |>
+      httr2::req_auth_bearer_token(gwdg_key()) |>
+      httr2::req_perform() |>
+      httr2::resp_body_json() |>
+      pluck("data") |>
+      keep(\(m) (m$status %||% "ready") == "ready"),
+    error = \(e) {
+      warning("Could not list GWDG models: ", conditionMessage(e), call. = FALSE)
+      list()
+    }
   )
+  ids <- c(map_chr(models, "id"), default_model)
+  names <- c(map_chr(models, \(m) m$name %||% m$id), default_model)
+  choices <- set_names(ids, names)[!duplicated(ids)]
+  choices[order(names(choices))]
+}
+
+model_choices <- gwdg_models()
+
+# Chat client
+system_prompt <- glue(
+  "You help researchers query ORION-DBs (open research information on ",
+  "Google BigQuery) through the orion_* tools. Follow the tool ",
+  "descriptions exactly. Queries only run after the user explicitly ",
+  "approves them in the chat.\n\n",
+  "When the user is exploring or the best approach is unclear, act as an ",
+  "advisor: propose two or three alternative strategies (e.g. different ",
+  "datasets, identifiers such as ROR IDs or DOIs, or ways to filter), ",
+  "dry-run each with orion_estimate_query_cost, and compare them in a ",
+  "short table with data source, GB scanned, estimated cost, and pros and ",
+  "cons. Point out ways to scan less data, such as filtering on partition ",
+  "columns or selecting fewer columns. Then ask which strategy to run. ",
+  "When the request is already specific, skip the comparison and follow ",
+  "the normal workflow.\n\n",
+  "Stored results (q1, q2, ...) live inside the orion-mcp server, a ",
+  "separate R process in a Docker container. The user cannot reach them ",
+  "from their own R session, so never say the data is 'in your R session' ",
+  "and never write code that uses q1, q2, ... as R objects. When the user ",
+  "wants to plot or analyse a result in R, export it with ",
+  "orion_export_result (free) and give R code that reads the exported ",
+  "file, e.g. read.csv(\"oa_by_year.csv\"), noting that the file is in the ",
+  "export folder they mounted for orion-mcp.\n\n",
+  "Write in a plain, factual style. Never use emojis or decorative ",
+  "symbols (such as ✅, ❌, 🚀, ⚠️, 📊), not even in headings, lists or ",
+  "tables; use words instead (e.g. 'yes'/'no', 'Note:')."
 )
 
-estimated <- new.env()
-my_chat$on_tool_result(\(result) remember_estimate(result, my_chat, estimated))
-my_chat$on_tool_request(\(request) approval_gate(request, my_chat, estimated))
-
 message("Starting the orion-mcp container (10-30 s) ...")
-my_chat$set_tools(mcp_tools())
+orion_tools <- mcp_tools()
+
+# A chat with the orion tools and the approval gate. `estimated` is shared
+# across model switches, so dry runs stay valid after changing the model.
+new_chat <- function(model, estimated) {
+  chat <- chat_openai_compatible(
+    base_url = gwdg_url,
+    model = model,
+    credentials = gwdg_key,
+    system_prompt = system_prompt
+  )
+  chat$set_tools(orion_tools)
+  chat$on_tool_result(\(result) remember_estimate(result, chat, estimated))
+  chat$on_tool_request(\(request) approval_gate(request, chat, estimated))
+  chat
+}
 
 # App 
 examples <- c(
@@ -130,16 +176,77 @@ greeting <- glue(
   "\n\n{str_flatten(steps, '\n')}"
 )
 
-chat_app(
-  my_chat,
-  id = "chat",
-  title = "ORION-DBs chat (GWDG)",
-  icon = tags$img(src = "logo-sub.svg", alt = "SUB Göttingen", class = "sub-logo"),
-  greeting = greeting,
-  history = FALSE,
-  bookmark_store = "disable",
-  # Wider than the default (680-760px) so SQL and tables have room;
-  # gau.scss narrows prose and user messages within it.
-  width = "min(clamp(720px, 60vw, 880px), 100%)",
-  theme = bslib::bs_bundle(page_chat_theme(), sass::sass_layer_file("gau.scss"))
+# .noWS: no space between a link and the comma after it.
+footer_link <- \(text, href) tags$a(href = href, target = "_blank", text, .noWS = "outside")
+
+ui <- tagList(
+  tags$head(tags$script(src = "tables.js")),
+  page_chat(
+    id = "chat",
+    title = "ORION-DBs AI chat interface",
+    icon = tags$img(src = "logo-sub.svg", alt = "SUB Göttingen", class = "sub-logo"),
+    sidebar = FALSE,
+    # Top bar as on sub.uni-goettingen.de: short links, then the contrast toggle.
+    toolbar_global = bslib::toolbar(
+      tags$nav(
+        class = "sub-meta-nav", `aria-label` = "Links",
+        tags$a(href = "https://orion-dbs.community/", target = "_blank", "ORION-DBs"),
+        tags$a(href = "https://docs.hpc.gwdg.de/services/ai-services/index.html", target = "_blank", "GWDG AI"),
+        tags$a(href = "https://github.com/subugoe/orion-chat", target = "_blank", "GitHub")
+      ),
+      bslib::input_dark_mode()
+    ),
+    # Model menu directly below the message box.
+    toolbar_input = bslib::toolbar(
+      align = "left",
+      bslib::toolbar_input_select(
+        "model", "GWDG-hosted model",
+        choices = model_choices,
+        selected = default_model,
+        show_label = TRUE
+      )
+    ),
+    footer = tags$div(
+      class = "sub-contact",
+      tags$p(
+        "Contact: Dr. Najko Jahn, ",
+        tags$a(href = "mailto:najko.jahn@sub.uni-goettingen.de", "najko.jahn@sub.uni-goettingen.de")
+      ),
+      tags$p(
+        "Built in R with ",
+        footer_link("shiny", "https://shiny.posit.co/"), ", ",
+        footer_link("shinychat", "https://posit-dev.github.io/shinychat/"), ", ",
+        footer_link("ellmer", "https://ellmer.tidyverse.org/"), ", ",
+        footer_link("mcptools", "https://posit-dev.github.io/mcptools/"), " and ",
+        footer_link("bslib", "https://rstudio.github.io/bslib/"),
+        ". Models by ",
+        footer_link("GWDG", "https://docs.hpc.gwdg.de/services/ai-services/index.html"),
+        ", data via ",
+        footer_link("orion-mcp", "https://github.com/subugoe/orion-mcp"), "."
+      )
+    ),
+    # Wider than the default (680-760px) so SQL and tables have room;
+    # gau.scss narrows prose and user messages within it.
+    width = "min(clamp(720px, 60vw, 880px), 100%)",
+    theme = bslib::bs_bundle(page_chat_theme(), sass::sass_layer_file("gau.scss"))
+  )
 )
+
+server <- function(input, output, session) {
+  # Each browser session gets its own chat and dry-run record.
+  estimated <- new.env()
+  chat <- chat_server(
+    "chat", new_chat(default_model, estimated),
+    greeting = greeting, history = FALSE
+  )
+
+  # Switching keeps the conversation; the new model sees the earlier turns.
+  # A switch during a reply takes effect once the reply is done.
+  observeEvent(input$model, ignoreInit = TRUE, {
+    chat$set_client(new_chat(input$model, estimated))
+    label <- names(model_choices)[model_choices == input$model]
+    showNotification(glue("Now using {label}."), duration = 3)
+  })
+}
+
+shinyApp(ui, server, enableBookmarking = "disable")
