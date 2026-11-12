@@ -46,7 +46,7 @@ The app is meant to run locally for one person. All browser sessions of the app 
 
 The model menu below the message box lists the chat models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `ORION_CHAT_MODEL` in `~/.Renviron` sets another. Not every GWDG model handles tool calls well; Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably in earlier tests. Estimating costs is free; running queries is billed to the Google Cloud project.
 
-Each conversation is saved as a Markdown transcript in `transcripts/` inside the export folder, rewritten after each reply. It contains the questions, the SQL, the costs and the result previews. `ORION_SAVE_TRANSCRIPTS=0` in `~/.Renviron` turns this off; Transcript in the top bar downloads the current conversation either way.
+Each conversation is saved as a Markdown transcript in `transcripts/` inside the export folder, rewritten after each reply. It contains the questions, the SQL, the costs and the result previews. `ORION_SAVE_TRANSCRIPTS=0` in `~/.Renviron` turns this off; Save chat below the message box downloads the current conversation either way.
 
 ## Using another model service
 

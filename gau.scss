@@ -145,15 +145,6 @@ header.shiny-chat-page-header {
   }
 }
 
-// Transcript download, between the links and the contrast toggle.
-.sub-transcript {
-  color: #fff;
-  background: transparent;
-  border-color: rgba(255, 255, 255, 0.6);
-  margin-right: 0.5rem;
-  &:hover, &:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.12); border-color: #fff; }
-}
-
 // Phones: smaller bars, links hidden, logo and toggle only.
 @media (max-width: 576px) {
   .shiny-chat-page { --shiny-chat-page-header-height: 112px; }
@@ -338,6 +329,23 @@ shiny-chat-page shiny-chat-container .shiny-chat-suggestion-list {
     color: $c-muted;
   }
   .bslib-toolbar-label { margin-left: 0; }
+
+  // Save chat and help: quiet text buttons, as tall as the model menu.
+  .sub-chat-action {
+    height: 2rem;
+    padding-inline: 0.5rem;
+    border: 0;
+    font-size: 0.875rem;
+    color: $c-muted;
+    background: transparent;
+    &:hover, &:focus-visible { color: var(--bs-primary); background: transparent; }
+  }
+
+  // Phones: one row, model name and icons only.
+  @media (max-width: 576px) {
+    .bslib-toolbar-input-select label.control-label,
+    .sub-chat-label { display: none; }
+  }
   // field-sizing fits the menu to the chosen model (Chromium; others ignore it).
   select { font-size: 0.875rem; cursor: pointer; field-sizing: content; }
 }

@@ -129,8 +129,8 @@ footer_link <- \(text, href) {
 # Help next to the model menu: approval, where data goes, transcripts.
 help_text <- tagList(
   tags$p(
-    "Queries run only after you approve them. Each cost estimate has a ",
-    "number; reply yes, or run #2 if there are several."
+    "Nothing runs until you approve it. Each cost estimate has a number: ",
+    "reply yes, or run #2 if there are several."
   ),
   tags$p(
     glue(
@@ -146,13 +146,13 @@ help_text <- tagList(
   tags$p(
     if (save_transcripts) {
       glue(
-        "Each conversation, with its questions, SQL, costs and result ",
-        "previews, is saved as a Markdown file in ",
-        "{str_replace(transcript_dir, fixed(path.expand('~')), '~')}. ",
+        "Each chat is saved as Markdown in ",
+        "{str_replace(transcript_dir, fixed(path.expand('~')), '~')}, ",
+        "with the questions, SQL, costs and result previews. ",
         "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
       )
     } else {
-      "Conversations are not saved; Transcript in the top bar downloads one."
+      "Conversations are not saved; Save chat downloads the current one."
     }
   )
 )
@@ -180,13 +180,11 @@ ui <- tagList(
           "GitHub"
         )
       ),
-      downloadButton(
-        "save_transcript", "Transcript",
-        class = "btn-sm sub-transcript"
-      ),
       bslib::input_dark_mode()
     ),
-    # Model menu directly below the message box.
+    # Below the message box: the model on the left; on the right, what acts
+    # on this conversation (save it, explain it). The top bar holds only
+    # site links.
     toolbar_input = bslib::toolbar(
       align = "left",
       bslib::toolbar_input_select(
@@ -195,10 +193,17 @@ ui <- tagList(
         selected = provider$model,
         show_label = TRUE
       ),
+      bslib::toolbar_spacer(),
+      downloadButton(
+        "save_transcript", tags$span(class = "sub-chat-label", "Save chat"),
+        icon = icon("download"), class = "btn-sm sub-chat-action",
+        title = "Save this chat as a Markdown file",
+        `aria-label` = "Save chat"
+      ),
       bslib::popover(
-        bslib::toolbar_input_button(
-          "help", "Help",
-          icon = icon("circle-question"), tooltip = FALSE
+        tags$button(
+          type = "button", class = "btn btn-sm sub-chat-action",
+          `aria-label` = "Help", icon("circle-question")
         ),
         title = "How this chat works",
         help_text
