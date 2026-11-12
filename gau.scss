@@ -145,6 +145,15 @@ header.shiny-chat-page-header {
   }
 }
 
+// Transcript download, between the links and the contrast toggle.
+.sub-transcript {
+  color: #fff;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.6);
+  margin-right: 0.5rem;
+  &:hover, &:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.12); border-color: #fff; }
+}
+
 // Phones: smaller bars, links hidden, logo and toggle only.
 @media (max-width: 576px) {
   .shiny-chat-page { --shiny-chat-page-header-height: 112px; }

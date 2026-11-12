@@ -21,6 +21,7 @@ patch_mcptools_timeout()
 # numbered estimate (see R/approval.R). The orion server itself refuses SQL
 # that has not been dry-run at all.
 source("R/approval.R")
+source("R/transcript.R")
 
 approval_gate <- function(request, chat, log) {
   turns <- chat$get_turns()
@@ -74,6 +75,9 @@ check_startup(key_set = nzchar(provider$ellmer) || nzchar(provider$key()), docke
 model_choices <- list_models(provider)
 export_dir <- path.expand(Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports"))
 dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+# One transcript per browser session, rewritten after each reply.
+save_transcripts <- Sys.getenv("ORION_SAVE_TRANSCRIPTS", "1") != "0"
+transcript_dir <- file.path(export_dir, "transcripts")
 billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
 mcp_config <- if (!nzchar(billing_project)) orion_entry_from_file()
 if (is.null(mcp_config)) {
@@ -133,6 +137,7 @@ ui <- tagList(
         tags$a(href = provider$url, target = "_blank", provider$label),
         tags$a(href = "https://github.com/subugoe/orion-chat", target = "_blank", "GitHub")
       ),
+      downloadButton("save_transcript", "Transcript", class = "btn-sm sub-transcript"),
       bslib::input_dark_mode()
     ),
     # Model menu directly below the message box.
@@ -150,12 +155,26 @@ ui <- tagList(
       tags$p(
         glue(
           "Your messages, the SQL and the result previews from orion-mcp are ",
-          "sent to {provider$label}"
+          "sent to {provider$label}",
+          if (nzchar(provider$privacy_url)) " (" else ""
         ),
         if (nzchar(provider$privacy_url)) {
-          tagList(" (", footer_link("how they handle data", provider$privacy_url), ")")
+          footer_link("how they handle data", provider$privacy_url)
         },
-        "; full results stay on this computer."
+        if (nzchar(provider$privacy_url)) "); " else "; ",
+        "full results stay on this computer."
+      ),
+      tags$p(
+        if (save_transcripts) {
+          glue(
+            "Each conversation, with its questions, SQL, costs and result ",
+            "previews, is saved as a Markdown file in ",
+            "{sub(path.expand('~'), '~', transcript_dir, fixed = TRUE)}; ",
+            "ORION_SAVE_TRANSCRIPTS=0 in ~/.Renviron turns this off."
+          )
+        } else {
+          "Conversations are not saved; Transcript in the top bar downloads one."
+        }
       ),
       tags$p(
         "Contact: Najko Jahn, ",
@@ -194,6 +213,30 @@ server <- function(input, output, session) {
     greeting = greeting, history = FALSE
   )
 
+  # Transcript. chat$client is the current client; a model switch copies
+  # all turns to the new client, also when it waits for a reply to end.
+  started <- Sys.time()
+  models_used <- provider$model
+  transcript <- \() render_transcript(
+    chat$client$get_turns(),
+    list(title = app_title, started = started, models = models_used)
+  )
+  output$save_transcript <- downloadHandler(
+    filename = \() format(Sys.time(), "orion-chat-%Y%m%d-%H%M.md"),
+    content = \(file) writeLines(transcript(), file, useBytes = TRUE)
+  )
+  if (save_transcripts) {
+    transcript_path <- file.path(transcript_dir, format(started, "orion-chat-%Y%m%d-%H%M%S.md"))
+    observeEvent(chat$status(), ignoreInit = TRUE, {
+      if (chat$status() == "idle") {
+        tryCatch(
+          save_transcript(transcript(), transcript_path),
+          error = \(e) warning("Transcript not saved: ", conditionMessage(e), call. = FALSE)
+        )
+      }
+    })
+  }
+
   # Switching keeps the conversation; the new model sees the earlier turns.
   # A switch during a reply takes effect once the reply is done. Some models
   # can't call tools; the probe reverts those before the chat fails.
@@ -207,6 +250,7 @@ server <- function(input, output, session) {
     }
     chat$set_client(new_chat(model, estimated, tools))
     selected_model <<- model
+    if (model != models_used[length(models_used)]) models_used <<- c(models_used, model)
     label <- names(model_choices)[model_choices == model]
     showNotification(glue("Now using {label}."), duration = 3)
   })
