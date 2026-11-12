@@ -12,7 +12,8 @@ provider_settings <- function(get = Sys.getenv) {
   list(
     base_url = setting("ORION_CHAT_BASE_URL", "https://chat-ai.academiccloud.de/v1"),
     key = \() setting("ORION_CHAT_API_KEY", get("GWDG_API_KEY")),
-    model = setting("ORION_CHAT_MODEL", "glm-5.3-flash"),
+    # Handled the estimate, confirm, run workflow most reliably in tests.
+    model = setting("ORION_CHAT_MODEL", "qwen3.5-397b-a17b"),
     label = setting("ORION_CHAT_PROVIDER", "GWDG"),
     url = setting(
       "ORION_CHAT_PROVIDER_URL",
@@ -38,10 +39,16 @@ new_client <- function(model, provider = provider_settings(), system_prompt = NU
 }
 
 # Menu choices c("Display name" = "id") from the `data` of a /models reply:
-# models that are ready (if the service says), plus the configured model,
-# sorted by name.
+# chat models that are ready and take and give text, plus the configured
+# model, sorted by name. GWDG reports `status`, `input` and `output`; a
+# service that does not is not filtered on them.
 model_choices_from <- function(models, configured) {
-  models <- keep(models, \(m) is.character(m$id) && (m$status %||% "ready") == "ready")
+  has <- \(field, value) is.null(field) || value %in% unlist(field)
+  models <- keep(models, \(m) {
+    is.character(m$id) &&
+      (m$status %||% "ready") == "ready" &&
+      has(m$input, "text") && has(m$output, "text")
+  })
   ids <- c(map_chr(models, "id"), configured)
   labels <- c(map_chr(models, \(m) m$name %||% m$id), configured)
   choices <- set_names(ids, labels)[!duplicated(ids)]

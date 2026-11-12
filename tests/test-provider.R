@@ -88,3 +88,19 @@ test_that("list_models() offers only the configured model without a lister", {
   p <- provider_settings(fake_env(ORION_CHAT_ELLMER = "nosuchprovider", ORION_CHAT_MODEL = "m1"))
   expect_identical(list_models(p), c(m1 = "m1"))
 })
+
+test_that("model_choices_from() keeps only models with text in and out", {
+  models <- list(
+    list(id = "chat", input = list("text", "image"), output = list("text", "thought")),
+    list(id = "embed", input = list("text"), output = list("embedding")),
+    list(id = "speech", input = list("audio"), output = list("text")),
+    list(id = "image-gen", input = list("text"), output = list("image"))
+  )
+  expect_identical(unname(model_choices_from(models, "chat")), "chat")
+})
+
+test_that("the default model is the one the README names", {
+  p <- provider_settings(fake_env())
+  readme <- readLines("../README.md")
+  expect_true(any(grepl(p$model, readme, fixed = TRUE)))
+})
