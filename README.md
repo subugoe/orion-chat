@@ -44,6 +44,32 @@ The app is meant to run locally for one person. All browser sessions of the app 
 
 The model menu below the message box lists the models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `default_model` in `app.R` changes this. Not every GWDG model handles tool calls well; Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably in earlier tests. Estimating costs is free; running queries is billed to the Google Cloud project.
 
+## Using another model service
+
+By default the app uses GWDG; nothing needs to be set beyond `GWDG_API_KEY`.
+
+For another service with an OpenAI-compatible API, add to `~/.Renviron`:
+
+```
+ORION_CHAT_BASE_URL=https://llm.example.org/v1
+ORION_CHAT_API_KEY=...
+ORION_CHAT_MODEL=model-id
+ORION_CHAT_PROVIDER=Example
+# Optional: where the name in the top bar and footer links to
+ORION_CHAT_PROVIDER_URL=https://llm.example.org
+```
+
+For a provider that [ellmer](https://ellmer.tidyverse.org/) supports, name it and the model; the key is read from that provider's usual variable:
+
+```
+ORION_CHAT_ELLMER=anthropic
+ORION_CHAT_MODEL=claude-sonnet-5-5
+ORION_CHAT_PROVIDER=Anthropic
+ANTHROPIC_API_KEY=...
+```
+
+The model must support tool calling. Only GWDG has been tested.
+
 ## AI assistance
 
 Code and documentation were written with the help of [Claude Code](https://claude.com/claude-code) (Anthropic). The app itself does not use Claude.

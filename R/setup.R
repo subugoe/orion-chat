@@ -55,8 +55,8 @@ check_startup <- function(key_set, docker, image = orion_image,
   stop_plain <- \(...) stop(paste0(...), call. = FALSE)
   if (!key_set) {
     stop_plain(
-      "GWDG_API_KEY is not set. Add GWDG_API_KEY=... to ~/.Renviron and ",
-      "restart R."
+      "No API key for the model service. Add ORION_CHAT_API_KEY=... ",
+      "(or GWDG_API_KEY=...) to ~/.Renviron and restart R."
     )
   }
   if (docker == "") {

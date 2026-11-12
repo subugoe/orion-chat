@@ -1,4 +1,4 @@
-# ORION-DBs chat: GWDG-hosted model + orion-mcp, as a Shiny app.
+# ORION-DBs chat: a hosted model (GWDG by default) + orion-mcp, as a Shiny app.
 
 library(shiny)
 library(shinychat)
@@ -34,71 +34,9 @@ approval_gate <- function(request, chat, log) {
   if (request@name %in% paid_tools) record_approval(log, n)
 }
 
-# Models
-gwdg_url <- "https://chat-ai.academiccloud.de/v1"
-gwdg_key <- \() Sys.getenv("GWDG_API_KEY")
-default_model <- "glm-5.3-flash"
-
-# Models GWDG serves right now, as c("Display name" = "id"). Falls back to
-# the default model if the list can't be fetched.
-gwdg_models <- function() {
-  models <- tryCatch(
-    httr2::request(gwdg_url) |>
-      httr2::req_url_path_append("models") |>
-      httr2::req_auth_bearer_token(gwdg_key()) |>
-      httr2::req_perform() |>
-      httr2::resp_body_json() |>
-      pluck("data") |>
-      keep(\(m) (m$status %||% "ready") == "ready"),
-    error = \(e) {
-      warning("Could not list GWDG models: ", conditionMessage(e), call. = FALSE)
-      list()
-    }
-  )
-  ids <- c(map_chr(models, "id"), default_model)
-  names <- c(map_chr(models, \(m) m$name %||% m$id), default_model)
-  choices <- set_names(ids, names)[!duplicated(ids)]
-  choices[order(names(choices))]
-}
-
-# A tiny probe request: can this model take tools? Returns NULL if it can
-# (or if the problem is only rate limiting, which the chat will show),
-# otherwise a short message for the user.
-tool_choice_problem <- function(model) {
-  res <- tryCatch(
-    httr2::request(gwdg_url) |>
-      httr2::req_url_path_append("chat/completions") |>
-      httr2::req_auth_bearer_token(gwdg_key()) |>
-      httr2::req_body_json(list(
-        model = model,
-        messages = list(list(role = "user", content = "Hi")),
-        tools = list(list(
-          type = "function",
-          `function` = list(
-            name = "noop",
-            description = "Do nothing.",
-            parameters = list(type = "object", properties = list())
-          )
-        )),
-        tool_choice = "auto",
-        max_tokens = 1
-      )) |>
-      # Include the body, or the error message is only "HTTP 400 Bad Request."
-      httr2::req_error(body = \(resp) httr2::resp_body_string(resp)) |>
-      httr2::req_perform(),
-    error = \(e) conditionMessage(e)
-  )
-  if (inherits(res, "httr2_response")) return(NULL)
-  if (
-    str_detect(res, fixed("400")) &&
-      str_detect(res, regex("tool choice|tool-call-parser", ignore_case = TRUE))
-  ) {
-    glue(
-      "{model} is not available right now: it can't call tools, which this ",
-      "app needs. Try another model, or try again later."
-    )
-  }
-}
+# Model service: GWDG unless .Renviron says otherwise (see R/provider.R)
+source("R/provider.R")
+provider <- provider_settings()
 
 # Chat client
 system_prompt <- glue(
@@ -132,8 +70,8 @@ system_prompt <- glue(
 
 # orion-mcp, started with a config that holds only the orion-dbs server.
 docker <- find_docker()
-check_startup(key_set = nzchar(gwdg_key()), docker)
-model_choices <- gwdg_models()
+check_startup(key_set = nzchar(provider$ellmer) || nzchar(provider$key()), docker)
+model_choices <- list_models(provider)
 export_dir <- path.expand(Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports"))
 dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
 billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
@@ -153,12 +91,7 @@ orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
 # shared by all clients of a browser session, so estimates stay valid after
 # changing the model.
 new_chat <- function(model, log, tools) {
-  chat <- chat_openai_compatible(
-    base_url = gwdg_url,
-    model = model,
-    credentials = gwdg_key,
-    system_prompt = system_prompt
-  )
+  chat <- new_client(model, provider, system_prompt)
   chat$set_tools(tools)
   chat$on_tool_request(\(request) approval_gate(request, chat, log))
   chat
@@ -197,7 +130,7 @@ ui <- tagList(
       tags$nav(
         class = "sub-meta-nav", `aria-label` = "Links",
         tags$a(href = "https://orion-dbs.community/", target = "_blank", "ORION-DBs"),
-        tags$a(href = "https://docs.hpc.gwdg.de/services/ai-services/index.html", target = "_blank", "GWDG AI"),
+        tags$a(href = provider$url, target = "_blank", provider$label),
         tags$a(href = "https://github.com/subugoe/orion-chat", target = "_blank", "GitHub")
       ),
       bslib::input_dark_mode()
@@ -206,9 +139,9 @@ ui <- tagList(
     toolbar_input = bslib::toolbar(
       align = "left",
       bslib::toolbar_input_select(
-        "model", "GWDG-hosted model",
+        "model", glue("{provider$label}-hosted model"),
         choices = model_choices,
-        selected = default_model,
+        selected = provider$model,
         show_label = TRUE
       )
     ),
@@ -226,7 +159,7 @@ ui <- tagList(
         footer_link("mcptools", "https://posit-dev.github.io/mcptools/"), " and ",
         footer_link("bslib", "https://rstudio.github.io/bslib/"),
         ". Models by ",
-        footer_link("GWDG", "https://docs.hpc.gwdg.de/services/ai-services/index.html"),
+        footer_link(provider$label, provider$url),
         ", data via ",
         footer_link("orion-mcp", "https://github.com/subugoe/orion-mcp"), "."
       )
@@ -245,9 +178,9 @@ server <- function(input, output, session) {
   estimated <- new_estimate_log()
   tools <- number_estimates(orion_tools, estimated)
   # The model the menu is on (the revert target when a switch fails).
-  selected_model <- default_model
+  selected_model <- provider$model
   chat <- chat_server(
-    "chat", new_chat(default_model, estimated, tools),
+    "chat", new_chat(provider$model, estimated, tools),
     greeting = greeting, history = FALSE
   )
 
@@ -256,7 +189,7 @@ server <- function(input, output, session) {
   # can't call tools; the probe reverts those before the chat fails.
   observeEvent(input$model, ignoreInit = TRUE, {
     model <- input$model
-    problem <- tool_choice_problem(model)
+    problem <- tool_choice_problem(model, provider)
     if (!is.null(problem)) {
       showNotification(problem, type = "error", duration = 10)
       updateSelectInput(session, "model", selected = selected_model)

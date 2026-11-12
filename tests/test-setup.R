@@ -1,6 +1,6 @@
 test_that("check_startup() stops with one plain line per problem", {
   ok <- \(args) 0L
-  expect_error(check_startup(FALSE, "/bin/docker", run = ok), "API_KEY is not set")
+  expect_error(check_startup(FALSE, "/bin/docker", run = ok), "No API key")
   expect_error(check_startup(TRUE, "", run = ok), "Docker not found")
   expect_error(
     check_startup(TRUE, "/bin/docker", run = \(args) if (args[1] == "info") 1L else 0L),
