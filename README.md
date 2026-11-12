@@ -40,6 +40,8 @@ Start Docker Desktop, and run in R:
 shiny::runApp()
 ```
 
+The app is meant to run locally for one person. All browser sessions of the app share one orion-mcp container and its stored results, so it should not be deployed to a shared server in this form.
+
 The model menu below the message box lists the models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `default_model` in `app.R` changes this. Not every GWDG model handles tool calls well; Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably in earlier tests. Estimating costs is free; running queries is billed to the Google Cloud project.
 
 ## AI assistance

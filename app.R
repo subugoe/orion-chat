@@ -239,7 +239,9 @@ ui <- tagList(
 )
 
 server <- function(input, output, session) {
-  # Each browser session gets its own chat and dry-run record.
+  # Each browser session gets its own chat and dry-run record. The orion-mcp
+  # container is shared by all sessions of this R process, and with it the
+  # stored results (q1, q2, ...) and the server's dry-run cache.
   estimated <- new_estimate_log()
   tools <- number_estimates(orion_tools, estimated)
   # The model the menu is on (the revert target when a switch fails).
