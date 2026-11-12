@@ -11,8 +11,11 @@ Safeguards check every query, show its cost in advance, and run nothing without 
 
 The app needs Docker Desktop, the [orion-mcp](https://github.com/subugoe/orion-mcp) image with Google Cloud credentials (see its README), and a [GWDG API key](https://docs.hpc.gwdg.de/services/ai-services/saia/).
 
+Tested on macOS only. The packages and their minimum versions are listed in `DESCRIPTION`:
+
 ```r
-install.packages(c("shiny", "shinychat", "ellmer", "mcptools", "bslib", "sass", "glue", "purrr", "stringr", "httr2"))
+install.packages("pak")
+pak::local_install_deps()  # run in the orion-chat folder
 file.edit("~/.Renviron")  # add GWDG_API_KEY=..., then restart R
 ```
 
@@ -51,7 +54,7 @@ Code and documentation were written with the help of [Claude Code](https://claud
 
 ## License
 
-MIT
+MIT. The logos in `www/` (SUB Göttingen, University of Göttingen, GWDG) are not covered by the MIT licence. To use the app elsewhere, replace them and change `app_title` and `app_logo` at the top of `app.R`.
 
 ## Contact
 

@@ -1,0 +1,24 @@
+Package: orionchat
+Title: Chat Interface for ORION-DBs
+Version: 0.1.0
+Description: Shiny app for asking questions about ORION-DBs in plain
+    language. Not an R package; this file lists the packages the app needs.
+License: MIT + file LICENSE
+Depends:
+    R (>= 4.1)
+Imports:
+    bslib (>= 0.12.0),
+    ellmer (>= 0.5.0),
+    glue,
+    httr2,
+    jsonlite,
+    mcptools (>= 1.0.3),
+    purrr,
+    rlang,
+    sass,
+    shiny (>= 1.14.0),
+    shinychat (>= 0.5.0),
+    stringr
+Suggests:
+    testthat (>= 3.0.0)
+Encoding: UTF-8

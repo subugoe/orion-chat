@@ -8,6 +8,11 @@ library(glue)
 library(purrr)
 library(stringr)
 
+# Title and logo in the top bar. The logo file is in www/; replace both to
+# use the app elsewhere (the SUB logo is not covered by the MIT licence).
+app_title <- "ORION-DBs AI chat interface"
+app_logo <- c(src = "logo-sub.svg", alt = "SUB Göttingen")
+
 # Setup
 # mcptools waits only 4 s per MCP reply; orion-mcp needs ~10 s to start.
 local({
@@ -222,8 +227,8 @@ ui <- tagList(
   tags$head(tags$script(src = "tables.js")),
   page_chat(
     id = "chat",
-    title = "ORION-DBs AI chat interface",
-    icon = tags$img(src = "logo-sub.svg", alt = "SUB Göttingen", class = "sub-logo"),
+    title = app_title,
+    icon = tags$img(src = app_logo[["src"]], alt = app_logo[["alt"]], class = "sub-logo"),
     sidebar = FALSE,
     # Top bar as on sub.uni-goettingen.de: short links, then the contrast toggle.
     toolbar_global = bslib::toolbar(
