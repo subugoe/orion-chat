@@ -28,7 +28,7 @@ approval_gate <- function(request, chat, log) {
   n <- length(user_messages(turns))
   log$n_user_messages <- n
   decision <- gate_decision(
-    request@name, sql_key(request@arguments$query), log, n,
+    request@name, request_key(request@arguments, log), log, n,
     parse_approval(latest_user_text(turns))
   )
   if (!decision$allow) tool_reject(decision$message)
@@ -55,7 +55,11 @@ system_prompt <- glue(
   "When the request is already specific, skip the comparison and follow ",
   "the normal workflow.\n\n",
   "Each cost estimate has a number (Estimate #1, #2, ...). Show the number ",
-  "with each estimate and, if there are several, ask which number to run.\n\n",
+  "with each estimate and, if there are several, ask which to run. The ",
+  "user approves with 'yes' (one estimate), with numbers ('run #2', ",
+  "'run #2 and #3') or with 'run all'. To run an approved estimate, pass ",
+  "its number as `estimate` to the run or export tool instead of the ",
+  "SQL.\n\n",
   "Stored results (q1, q2, ...) live inside the orion-mcp server, a ",
   "separate R process in a Docker container. The user cannot reach them ",
   "from their own R session, so never say the data is 'in your R session' ",
@@ -137,9 +141,10 @@ help_text <- tags$ul(
     "tables and writes the SQL."
   ),
   help_item(
-    "Approve.", "You see the SQL and its cost first. Reply yes to run it, ",
-    "or run #2 if there are several. Cost checks are free; queries are ",
-    "billed to your Google Cloud project."
+    "Approve.", "You see the SQL and its cost first. Reply yes to run it. ",
+    "If there are several, reply with the numbers, such as run #2 and #3, ",
+    "or run all. Cost checks are free; queries are billed to your Google ",
+    "Cloud project."
   ),
   help_item(
     "Export.", "Ask for a CSV file to get the full result. Files go to ",
@@ -265,7 +270,7 @@ server <- function(input, output, session) {
   # container is shared by all sessions of this R process, and with it the
   # stored results (q1, q2, ...) and the server's dry-run cache.
   estimated <- new_estimate_log()
-  tools <- number_estimates(orion_tools, estimated)
+  tools <- wrap_orion_tools(orion_tools, estimated)
   # The model the menu is on (the revert target when a switch fails).
   selected_model <- provider$model
   chat <- chat_server(
