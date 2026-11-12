@@ -248,7 +248,7 @@ ui <- tagList(
     footer = tags$div(
       class = "sub-contact",
       tags$p(
-        "Contact: Dr. Najko Jahn, ",
+        "Contact: Najko Jahn, ",
         tags$a(href = "mailto:najko.jahn@sub.uni-goettingen.de", "najko.jahn@sub.uni-goettingen.de")
       ),
       tags$p(
