@@ -234,7 +234,16 @@ help_text <- tags$ul(
   ),
   help_item(
     "Export.", "Ask for a CSV file to get the full result. Files go to ",
-    tags$code(home_path(export_dir), .noWS = "after"), "."
+    # With the entry from the mcptools config, its own mount decides.
+    if (from_file) {
+      tagList(
+        "the export folder set in the orion-dbs entry of ",
+        tags$code("~/.config/mcptools/config.json", .noWS = "after")
+      )
+    } else {
+      tags$code(home_path(export_dir), .noWS = "after")
+    },
+    "."
   ),
   help_item(
     "Switch models.", "Pick another model in the menu at any time; the ",
@@ -243,9 +252,9 @@ help_text <- tags$ul(
   help_item(
     "Save chat.", "Downloads the conversation as a Markdown file.",
     if (save_transcripts) {
-      paste(
-        " A copy is also saved after each reply, in the transcripts",
-        "folder next to your exports."
+      tagList(
+        " A copy is also saved after each reply, in ",
+        tags$code(home_path(transcript_dir), .noWS = "after"), "."
       )
     }
   ),
