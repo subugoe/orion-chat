@@ -15,6 +15,7 @@ Imports:
     mcptools (>= 1.0.3),
     purrr,
     rlang,
+    S7,
     sass,
     shiny (>= 1.14.0),
     shinychat (>= 0.5.0),
