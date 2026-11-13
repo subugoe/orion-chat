@@ -6,7 +6,7 @@ ORION-DBs is a collection of open research information on Google BigQuery, inclu
 
 Your prompts, the SQL and the result previews returned by orion-mcp are sent to the GWDG model service; full results and exports stay on your machine. GWDG describes how it handles this data in its [Chat AI data privacy notice](https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html).
 
-![The app showing a dry-run SQL query on journal articles by the University of Göttingen and UMG, 2021–2025, with its estimated cost, and asking for approval before running it](home.png)
+![The app showing a dry-run SQL query on journal articles by the University of Göttingen and UMG since 2020, with its estimated cost, and asking for approval before running it](home.png)
 
 ## Setup
 
