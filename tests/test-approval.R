@@ -38,6 +38,7 @@ test_that("parse_approval() accepts whole-message approvals", {
     list("ok, yes", integer(), FALSE),
     list("run these queries", integer(), FALSE),
     list("run all", integer(), TRUE),
+    list("Run #4?", 4L, FALSE),
     # "for" is filler since "go for it" is accepted.
     list("yes for 2", 2L, FALSE)
   )
@@ -80,7 +81,7 @@ test_that("parse_approval() rejects messages that only start like one", {
     "run this query: SELECT 1", "run the query with Crossref",
     "2020 to 2024", "2 years", "#2 looks wrong", "the second one",
     "do it for the other one", "yes if it is free", "ok, what does it cost?",
-    "thanks", "# 2", "2.5", "2 or 3", "#"
+    "thanks", "# 2", "2.5", "2 or 3", "#", "yes?", "run?", "ok, run it?"
   )) {
     result <- parse_approval(text)
     expect_false(result$approved, info = text)
@@ -209,6 +210,32 @@ test_that("gate_decision() with several estimates needs a number", {
   expect_true(decide(log, k2, 2L, "yes, 2")$allow)
   expect_false(decide(log, k1, 2L, "yes, 2")$allow)
   expect_match(decide(log, k1, 2L, "run #2")$message, "estimate #1")
+})
+
+test_that("a plain yes means the estimates named in the reply", {
+  # As in a chat on 2026-11-13: #1 and #3 were small lookups, #2 a dry-run
+  # the model dropped without showing it, #4 the query it showed.
+  log <- log_of(
+    list(2L, 2L, 2L, 2L), released = list(2L, NULL, 2L, NULL),
+    bytes = c(5e6, 4e8, 5e6, 9e8), auto_run_bytes = 1e8
+  )
+  shown <- "Estimate #4: 0.909 GB scanned, about $0.0052. Shall I run this query?"
+  expect_true(decide(log, key_of(4), 3L, "yes", reply = shown)$allow)
+  # The yes does not cover the dropped estimate.
+  dropped <- decide(log, key_of(2), 3L, "yes", reply = shown)
+  expect_false(dropped$allow)
+  expect_match(dropped$message, "(open estimates: #4)", fixed = TRUE)
+  # A reply that names both, or neither, leaves the yes ambiguous.
+  both <- "The open estimates are #2 and #4. Run #4?"
+  expect_match(
+    decide(log, key_of(4), 3L, "yes", reply = both)$message,
+    "(open estimates: #2, #4)", fixed = TRUE
+  )
+  expect_false(decide(log, key_of(4), 3L, "yes", reply = "Shall I run it?")$allow)
+  # "#40" does not name #4.
+  expect_false(decide(log, key_of(4), 3L, "yes", reply = "Estimate #40")$allow)
+  # The echoed question approves by number.
+  expect_true(decide(log, key_of(4), 3L, "Run #4?", reply = both)$allow)
 })
 
 test_that("gate_decision() accepts several numbers or 'all'", {

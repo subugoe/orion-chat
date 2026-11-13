@@ -63,6 +63,11 @@ parse_approval <- function(text) {
       approved = FALSE, numbers = integer(), all = FALSE, bare = FALSE
     ))
   }
+  # "Run #4?" echoes the model's question; a "?" counts only after a number,
+  # so "yes?" stays a question.
+  if (length(numbers_in(rest)) > 0) {
+    rest <- str_remove(rest, "\\?$")
+  }
   leftover <- rest |>
     str_remove_all("\\d+") |>
     str_remove_all(approval_filler) |>
@@ -311,7 +316,8 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
     return(gate_allow())
   }
   decision <- approval_decision(
-    tool, sql_key, estimated, n_user_messages, approval, estimate
+    tool, sql_key, estimated, n_user_messages, approval, estimate,
+    reply = reply
   )
   if (decision$allow && tool %in% table_tools) {
     problem <- table_problem(destination, overwrite, reply)
@@ -323,8 +329,13 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
 }
 
 # Whether the user approved this call of a paid tool.
+# Whether `text` names estimate `number` ("Estimate #4", "#4").
+names_estimate <- function(text, number) {
+  str_detect(text %||% "", glue("#{number}(?!\\d)"))
+}
+
 approval_decision <- function(tool, sql_key, estimated, n_user_messages,
-                              approval, estimate = NULL) {
+                              approval, estimate = NULL, reply = NULL) {
   record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
 
   # A message of numbers only approves if all of them are open estimates.
@@ -399,11 +410,17 @@ approval_decision <- function(tool, sql_key, estimated, n_user_messages,
   }
 
   # A plain "yes" refers to the latest step: the open estimates that were
-  # shown last. It covers the call if there is just one; "all" and "both"
-  # cover every estimate of that step.
+  # shown last. If the reply the user answered names some of them by
+  # number, only those: a dry-run the model dropped without showing it
+  # does not make the yes ambiguous. It covers the call if there is just
+  # one; "all" and "both" cover every estimate of that step.
   open <- open_estimates(estimated, n_user_messages, current = record)
   shown <- map_int(open, \(r) shown_at(r, n_user_messages))
   latest <- open[shown == max(shown, -Inf)]
+  named <- keep(latest, \(r) names_estimate(reply, r$number))
+  if (length(named) > 0) {
+    latest <- named
+  }
   covered <- length(latest) == 1 || isTRUE(approval$all)
   if (sql_key %in% names(latest) && covered) {
     return(gate_allow())
