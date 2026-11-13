@@ -8,8 +8,8 @@ paid_tools <- c(
 
 # A message approves only if the whole message is an approval: optional
 # "please", an approval word, then nothing but estimate numbers ("#2",
-# "2 and 3"), "both" or "all", filler such as "run it", and punctuation.
-# "ok, but use Crossref instead" is not an approval.
+# "2 and 3"), "both" or "all", filler such as "run the query", and
+# punctuation. "ok, but use Crossref instead" is not an approval.
 approval_start <- regex(
   paste0(
     "^(?:(?:please|bitte)[\\s,]+)?",
@@ -18,25 +18,48 @@ approval_start <- regex(
   ),
   ignore_case = TRUE
 )
+# Fillers of several words come first, so that "go ahead" is not left with
+# "go".
 approval_filler <- regex(
   paste0(
-    "\\b(?:run|it|them|both|all|beide|alle|of|and|und|with|estimates?|",
-    "numbers?|please|bitte|thanks|thank you|danke)\\b"
+    "\\b(?:go ahead|thank you|run|it|them|both|all|beide|alle|of|and|und|",
+    "with|estimates?|numbers?|please|bitte|thanks|danke|the|this|that|",
+    "these|query|queries|one|now|do|for|yes|okay|ok|sure)\\b"
   ),
+  ignore_case = TRUE
+)
+
+# A message of estimate numbers only: "2", "#2", "#2 and #3", "2, 3". The
+# gate counts it as an approval only if these are open estimates.
+approval_bare <- regex(
+  "^#?\\d+(?:(?:\\s*(?:,|&|\\+|and|und)\\s*|\\s+)#?\\d+)*[.!]?$",
   ignore_case = TRUE
 )
 
 approval_all <- regex("\\b(?:both|all|beide|alle)\\b", ignore_case = TRUE)
 
+# The numbers in a text, as integers.
+numbers_in <- function(text) {
+  suppressWarnings(as.integer(str_extract_all(text, "\\d+")[[1]]))
+}
+
 # list(approved = TRUE/FALSE, numbers = the estimate numbers named,
-#      all = TRUE if the message says "both" or "all")
+#      all = TRUE if the message says "both" or "all",
+#      bare = TRUE if the message consists of numbers only)
 parse_approval <- function(text) {
   text <- text %||% ""
   if (length(text) != 1 || is.na(text)) text <- ""
-  match <- str_match(str_squish(text), approval_start)
-  rest <- match[1, 3]
+  text <- str_squish(text)
+  if (str_detect(text, approval_bare)) {
+    return(list(
+      approved = TRUE, numbers = numbers_in(text), all = FALSE, bare = TRUE
+    ))
+  }
+  rest <- str_match(text, approval_start)[1, 3]
   if (is.na(rest)) {
-    return(list(approved = FALSE, numbers = integer(), all = FALSE))
+    return(list(
+      approved = FALSE, numbers = integer(), all = FALSE, bare = FALSE
+    ))
   }
   leftover <- rest |>
     str_remove_all("\\d+") |>
@@ -44,8 +67,9 @@ parse_approval <- function(text) {
     str_remove_all("[\\s#,.;:!&+-]")
   list(
     approved = leftover == "",
-    numbers = as.integer(str_extract_all(rest, "\\d+")[[1]]),
-    all = str_detect(rest, approval_all)
+    numbers = numbers_in(rest),
+    all = str_detect(rest, approval_all),
+    bare = FALSE
   )
 }
 
@@ -198,8 +222,8 @@ ask_again <- paste0(
 
 how_to_approve <- paste0(
   "The user approves with 'yes' (if your last message showed one ",
-  "estimate), with the numbers ('run #2', 'run #2 and #3') or with ",
-  "'run all' (all estimates of your last message)."
+  "estimate), with the numbers ('run #2', 'run #2 and #3', or just '#2') ",
+  "or with 'run all' (all estimates of your last message)."
 )
 
 # Whether a tool call may run. `estimated` is the log (or a list with the
@@ -210,6 +234,15 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
                           estimate = NULL) {
   if (!tool %in% paid_tools) {
     return(gate_allow())
+  }
+
+  record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
+
+  # A message of numbers only approves if all of them are open estimates.
+  # "5" as the answer to another question approves nothing.
+  if (isTRUE(approval$bare)) {
+    open <- open_estimates(estimated, n_user_messages, current = record)
+    approval$approved <- all(approval$numbers %in% map_int(open, "number"))
   }
 
   # No SQL argument: saves an already stored result.
@@ -223,7 +256,6 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
     ))
   }
 
-  record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
   if (is.null(record) && !is.null(estimate)) {
     return(gate_reject(
       "Not run: there is no Estimate #", estimate, ". Existing estimates: ",

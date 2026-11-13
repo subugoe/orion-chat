@@ -25,13 +25,48 @@ test_that("parse_approval() accepts whole-message approvals", {
     list("yes, both", integer(), TRUE),
     list("run all of them", integer(), TRUE),
     list("go ahead with both", integer(), TRUE),
-    list("yes, run both, thanks", integer(), TRUE)
+    list("yes, run both, thanks", integer(), TRUE),
+    list("Yes, run the query", integer(), FALSE),
+    list("run the query", integer(), FALSE),
+    list("yes, go ahead", integer(), FALSE),
+    list("ok, do it", integer(), FALSE),
+    list("yes please do", integer(), FALSE),
+    list("yes run this one", integer(), FALSE),
+    list("ok run it now", integer(), FALSE),
+    list("go for it", integer(), FALSE),
+    list("sure, run that one", integer(), FALSE),
+    list("ok, yes", integer(), FALSE),
+    list("run these queries", integer(), FALSE),
+    list("run all", integer(), TRUE),
+    # "for" is filler since "go for it" is accepted.
+    list("yes for 2", 2L, FALSE)
   )
   for (case in cases) {
     result <- parse_approval(case[[1]])
     expect_true(result$approved, info = case[[1]])
     expect_identical(result$numbers, case[[2]], info = case[[1]])
     expect_identical(result$all, case[[3]], info = case[[1]])
+    expect_false(result$bare, info = case[[1]])
+  }
+})
+
+test_that("parse_approval() accepts a message of estimate numbers only", {
+  cases <- list(
+    list("2", 2L),
+    list("#2", 2L),
+    list(" #2. ", 2L),
+    list("#2 and #3", c(2L, 3L)),
+    list("2, 3", c(2L, 3L)),
+    list("2 3", c(2L, 3L)),
+    list("#1 & 4!", c(1L, 4L)),
+    list("2 und 3", c(2L, 3L))
+  )
+  for (case in cases) {
+    result <- parse_approval(case[[1]])
+    expect_true(result$approved, info = case[[1]])
+    expect_true(result$bare, info = case[[1]])
+    expect_identical(result$numbers, case[[2]], info = case[[1]])
+    expect_false(result$all, info = case[[1]])
   }
 })
 
@@ -39,11 +74,17 @@ test_that("parse_approval() rejects messages that only start like one", {
   for (text in c(
     "ok, but use Crossref instead", "go back to the first idea",
     "run a different analysis", "y axis should be log", "yes but only 2020",
-    "no", "2", "#2", "", "   ", "yesterday", "okay so what about OpenAIRE?",
-    "run #2 but with 2024", "yes for 2", "all good, but not yet",
-    "go with the cheaper one"
+    "no", "", "   ", "yesterday", "okay so what about OpenAIRE?",
+    "run #2 but with 2024", "all good, but not yet",
+    "go with the cheaper one", "yes, but only for 2020",
+    "run this query: SELECT 1", "run the query with Crossref",
+    "2020 to 2024", "2 years", "#2 looks wrong", "the second one",
+    "do it for the other one", "yes if it is free", "ok, what does it cost?",
+    "thanks", "# 2", "2.5", "2 or 3", "#"
   )) {
-    expect_false(parse_approval(text)$approved, info = text)
+    result <- parse_approval(text)
+    expect_false(result$approved, info = text)
+    expect_false(result$bare, info = text)
   }
   expect_false(parse_approval(NULL)$approved)
   expect_false(parse_approval(NA_character_)$approved)
@@ -84,6 +125,26 @@ run <- "orion_run_bq_query"
 # user messages is `text`.
 decide <- function(log, key, n, text, tool = run) {
   gate_decision(tool, key, log, n, parse_approval(text))
+}
+
+# A log built from a description of what happened. `at` gives, per estimate
+# number, the user-message counts at which its SQL was dry-run; `released`
+# the count at which it was run, if it was.
+key_of <- \(number) sql_key(paste("SELECT", number))
+log_of <- function(at, released = list(), approvals = integer(),
+                   bytes = 15e9, auto_run_bytes = 0) {
+  log <- new_estimate_log(auto_run_bytes)
+  bytes <- rep_len(bytes, length(at))
+  for (number in seq_along(at)) {
+    for (count in at[[number]]) {
+      record_estimate(log, paste("SELECT", number), bytes[[number]], count)
+    }
+    if (number <= length(released) && !is.null(released[[number]])) {
+      record_release(log, key_of(number), released[[number]])
+    }
+  }
+  for (count in approvals) record_approval(log, count)
+  log
 }
 
 test_that("gate_decision() lets free tools through", {
@@ -154,6 +215,32 @@ test_that("gate_decision() accepts several numbers or 'all'", {
   expect_false(decide(log, k1, 3L, "yes, both")$allow)
 })
 
+test_that("a message of numbers approves only open estimates", {
+  log <- log_of(at = list(1L, 1L))
+  expect_true(decide(log, key_of(2), 2L, "#2")$allow)
+  expect_true(decide(log, key_of(2), 2L, "2")$allow)
+  expect_true(decide(log, key_of(2), 2L, "#1 and #2")$allow)
+  # The number names another estimate.
+  expect_match(decide(log, key_of(1), 2L, "#2")$message, "estimate #1")
+  # "5" answers another question: there is no open #5.
+  five <- decide(log, key_of(2), 2L, "5")
+  expect_false(five$allow)
+  expect_match(five$message, "has not approved this yet")
+  expect_false(decide(log, key_of(2), 2L, "2, 5")$allow)
+  # An estimate that has run is not open; it still runs with "run #1".
+  ran <- log_of(at = list(1L, 2L), released = list(2L), approvals = 2L)
+  expect_false(decide(ran, key_of(1), 3L, "#1")$allow)
+  expect_true(decide(ran, key_of(1), 3L, "run #1")$allow)
+  expect_true(decide(ran, key_of(2), 3L, "#2")$allow)
+  # A small query counts as open for the call that exports it.
+  small <- log_of(at = list(1L), bytes = 5e6, auto_run_bytes = 1e8)
+  export <- "orion_export_bq_query"
+  expect_true(decide(small, key_of(1), 2L, "#1", tool = export)$allow)
+  # Saving a stored result has no estimate; numbers must still be open.
+  save <- "orion_save_result_to_bq"
+  expect_false(decide(log, NULL, 2L, "5", tool = save)$allow)
+})
+
 test_that("the rejection tells the model how the user can approve", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
@@ -162,6 +249,7 @@ test_that("the rejection tells the model how the user can approve", {
   expect_match(message, "#1, #2", fixed = TRUE)
   expect_match(message, "run #2 and #3", fixed = TRUE)
   expect_match(message, "run all", fixed = TRUE)
+  expect_match(message, "or just '#2'", fixed = TRUE)
 })
 
 test_that("an estimate number the tool never gave is refused clearly", {
@@ -220,26 +308,6 @@ test_that("gate_decision() counts only estimates since the previous approval", {
   # The older one can still be run by number.
   expect_true(decide(log, k1, 3L, "run #1")$allow)
 })
-
-# The cases of a plain "yes" after several steps. `at` gives, per estimate
-# number, the user-message counts at which its SQL was dry-run; `released`
-# the count at which it was run, if it was.
-key_of <- \(number) sql_key(paste("SELECT", number))
-log_of <- function(at, released = list(), approvals = integer(),
-                   bytes = 15e9, auto_run_bytes = 0) {
-  log <- new_estimate_log(auto_run_bytes)
-  bytes <- rep_len(bytes, length(at))
-  for (number in seq_along(at)) {
-    for (count in at[[number]]) {
-      record_estimate(log, paste("SELECT", number), bytes[[number]], count)
-    }
-    if (number <= length(released) && !is.null(released[[number]])) {
-      record_release(log, key_of(number), released[[number]])
-    }
-  }
-  for (count in approvals) record_approval(log, count)
-  log
-}
 
 test_that("yes after a revision runs the revised estimate", {
   log <- log_of(at = list(1L, 2L))
