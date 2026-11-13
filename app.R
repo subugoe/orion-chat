@@ -31,7 +31,10 @@ approval_gate <- function(request, chat, log) {
   decision <- gate_decision(
     request@name, key, log, n,
     parse_approval(latest_user_text(turns)),
-    estimate = request@arguments$estimate
+    estimate = request@arguments$estimate,
+    reply = last_reply_text(turns),
+    destination = request@arguments$destination,
+    overwrite = request@arguments$overwrite
   )
   if (!decision$allow) tool_reject(decision$message)
   if (request@name %in% paid_tools && !decision$unasked) {

@@ -5,6 +5,8 @@ paid_tools <- c(
   "orion_run_bq_query", "orion_export_bq_query",
   "orion_query_to_table", "orion_save_result_to_bq"
 )
+# These write a BigQuery table, and can replace an existing one.
+table_tools <- c("orion_query_to_table", "orion_save_result_to_bq")
 
 # A message approves only if the whole message is an approval: optional
 # "please", an approval word, then nothing but estimate numbers ("#2",
@@ -226,16 +228,80 @@ how_to_approve <- paste0(
   "or with 'run all' (all estimates of your last message)."
 )
 
+ask_table <- paste0(
+  "Name the full table (project.dataset.table), say whether an existing ",
+  "table will be replaced, ask whether to go ahead, and wait for a yes."
+)
+
+overwrite_words <- regex(
+  "overwrit|replac|überschreib|ersetz",
+  ignore_case = TRUE
+)
+
+# The gate sees `overwrite` before ellmer converts it, so it may be TRUE or
+# "true". Anything that is not clearly false counts as a request to replace.
+asks_overwrite <- function(value) {
+  is_false <- isFALSE(value) ||
+    (is.character(value) && length(value) == 1 &&
+      str_to_lower(value) %in% c("false", ""))
+  !is.null(value) && !is_false
+}
+
+# Why a table write must not run although the user approved, or NULL. The
+# model chooses `destination` and `overwrite` in the tool call, so the
+# approval counts only if `reply`, the text the user answered, named the
+# table and said that an existing table will be replaced.
+table_problem <- function(destination, overwrite, reply) {
+  reply <- str_to_lower(reply %||% "")
+  valid <- is.character(destination) && length(destination) == 1 &&
+    !is.na(destination) && str_trim(destination) != ""
+  if (!valid) {
+    return(paste0("Not run: the call names no destination table. ", ask_table))
+  }
+  destination <- str_trim(destination)
+  if (!str_detect(reply, fixed(str_to_lower(destination)))) {
+    return(paste0(
+      "Not run: the user approved, but your last message did not name the ",
+      "destination table '", destination, "'. ", ask_table
+    ))
+  }
+  if (asks_overwrite(overwrite) && !str_detect(reply, overwrite_words)) {
+    return(paste0(
+      "Not run: the call sets overwrite, but your last message did not say ",
+      "that the existing table '", destination, "' will be replaced. ",
+      ask_table
+    ))
+  }
+  NULL
+}
+
 # Whether a tool call may run. `estimated` is the log (or a list with the
 # same fields), `approval` the result of parse_approval() for the latest
 # user message, `n_user_messages` the number of user messages so far.
-# `estimate` is the estimate number the tool call names, if any.
+# `estimate` is the estimate number the tool call names, if any. `reply` is
+# the assistant text the user answered (last_reply_text()); `destination`
+# and `overwrite` are the arguments of a call that writes a table.
 gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
-                          estimate = NULL) {
+                          estimate = NULL, reply = NULL, destination = NULL,
+                          overwrite = NULL) {
   if (!tool %in% paid_tools) {
     return(gate_allow())
   }
+  decision <- approval_decision(
+    tool, sql_key, estimated, n_user_messages, approval, estimate
+  )
+  if (decision$allow && tool %in% table_tools) {
+    problem <- table_problem(destination, overwrite, reply)
+    if (!is.null(problem)) {
+      return(gate_reject(problem))
+    }
+  }
+  decision
+}
 
+# Whether the user approved this call of a paid tool.
+approval_decision <- function(tool, sql_key, estimated, n_user_messages,
+                              approval, estimate = NULL) {
   record <- if (!is.null(sql_key)) estimated$records[[sql_key]]
 
   # A message of numbers only approves if all of them are open estimates.
@@ -251,8 +317,8 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
       return(gate_allow())
     }
     return(gate_reject(
-      "Not run: the user has not approved this yet. Say what will be saved ",
-      "where, ask whether to go ahead, and wait for a yes."
+      "Not run: the user has not approved this yet. Say which result will ",
+      "be saved. ", ask_table
     ))
   }
 
@@ -285,6 +351,7 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
   if (!isTRUE(approval$approved)) {
     return(gate_reject(
       "Not run: the user has not approved this yet. ", ask_again, " ",
+      if (tool %in% table_tools) paste0(ask_table, " "),
       how_to_approve
     ))
   }
@@ -321,13 +388,33 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
 }
 
 # Messages the user typed (tool results are stored as user turns without text).
+is_user_message <- function(turn) {
+  turn@role == "user" && str_trim(turn@text) != ""
+}
+
 user_messages <- function(turns) {
-  keep(turns, \(turn) turn@role == "user" && str_trim(turn@text) != "")
+  keep(turns, is_user_message)
 }
 
 latest_user_text <- function(turns) {
   messages <- user_messages(turns)
   if (length(messages) == 0) "" else messages[[length(messages)]]@text
+}
+
+# What the user read before answering: the text of the assistant turns
+# between the previous user message and the latest one.
+last_reply_text <- function(turns) {
+  typed <- which(map_lgl(turns, is_user_message))
+  if (length(typed) == 0) {
+    return("")
+  }
+  latest <- typed[length(typed)]
+  previous <- if (length(typed) > 1) typed[length(typed) - 1] else 0L
+  before <- seq_len(latest - 1)
+  turns[before[before > previous]] |>
+    keep(\(turn) turn@role == "assistant") |>
+    map_chr(\(turn) turn@text) |>
+    str_flatten("\n")
 }
 
 # Replace orion_estimate_query_cost by a tool that records each successful

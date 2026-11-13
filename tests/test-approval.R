@@ -123,8 +123,9 @@ run <- "orion_run_bq_query"
 
 # The gate decision for `tool` with SQL key `key`, when the latest of `n`
 # user messages is `text`.
-decide <- function(log, key, n, text, tool = run) {
-  gate_decision(tool, key, log, n, parse_approval(text))
+# `...`: reply, destination and overwrite, for the tools that write a table.
+decide <- function(log, key, n, text, tool = run, ...) {
+  gate_decision(tool, key, log, n, parse_approval(text), ...)
 }
 
 # A log built from a description of what happened. `at` gives, per estimate
@@ -238,7 +239,11 @@ test_that("a message of numbers approves only open estimates", {
   expect_true(decide(small, key_of(1), 2L, "#1", tool = export)$allow)
   # Saving a stored result has no estimate; numbers must still be open.
   save <- "orion_save_result_to_bq"
-  expect_false(decide(log, NULL, 2L, "5", tool = save)$allow)
+  five <- decide(
+    log, NULL, 2L, "5",
+    tool = save, reply = "Save q1 to p.d.t?", destination = "p.d.t"
+  )
+  expect_match(five$message, "has not approved this yet")
 })
 
 test_that("the rejection tells the model how the user can approve", {
@@ -419,8 +424,115 @@ test_that("gate_decision() rejects an estimate made after the approval", {
 test_that("gate_decision() needs a plain approval to save a result", {
   log <- new_estimate_log()
   save <- "orion_save_result_to_bq"
-  expect_false(decide(log, NULL, 1L, "save q1 please", tool = save)$allow)
-  expect_true(decide(log, NULL, 1L, "yes", tool = save)$allow)
+  asked <- "Shall I save q1 as `my-project.results.oa_by_year`?"
+  save_to <- \(text, ...) {
+    decide(
+      log, NULL, 2L, text,
+      tool = save, destination = "my-project.results.oa_by_year", ...
+    )
+  }
+  expect_false(save_to("save q1 please", reply = asked)$allow)
+  expect_true(save_to("yes", reply = asked)$allow)
+  # The "yes" answered a message that did not name the table.
+  hidden <- save_to("yes", reply = "Shall I save q1 to BigQuery?")
+  expect_false(hidden$allow)
+  expect_match(hidden$message, "did not name the destination table")
+  expect_match(hidden$message, "project.dataset.table", fixed = TRUE)
+  expect_false(save_to("yes")$allow)
+  expect_false(decide(log, NULL, 2L, "yes", tool = save, reply = asked)$allow)
+})
+
+test_that("a table is written only to the destination the user saw", {
+  log <- log_of(at = list(1L))
+  table <- "orion_query_to_table"
+  to_table <- \(text, reply, destination = "my-project.results.works", ...) {
+    decide(
+      log, key_of(1), 2L, text,
+      tool = table, reply = reply, destination = destination, ...
+    )
+  }
+  shown <- paste(
+    "Estimate #1 scans 15 GB. Shall I write the result to",
+    "`My-Project.results.works`?"
+  )
+  expect_true(to_table("yes", shown)$allow)
+  expect_true(to_table("run #1", shown)$allow)
+  expect_true(to_table("yes", shown, overwrite = FALSE)$allow)
+  expect_true(to_table("yes", shown, overwrite = "false")$allow)
+  # Approved, but the model picked a table the user did not see.
+  other <- to_table("yes", shown, destination = "my-project.results.other")
+  expect_false(other$allow)
+  expect_match(other$message, "'my-project.results.other'", fixed = TRUE)
+  expect_match(other$message, "wait for a yes")
+  expect_false(to_table("yes", "Estimate #1 scans 15 GB. Run it?")$allow)
+  expect_false(to_table("yes", shown, destination = NULL)$allow)
+  expect_false(to_table("yes", shown, destination = "")$allow)
+  # Not approved: the rejection already asks for the table.
+  expect_match(to_table("hm", shown)$message, "project.dataset.table")
+})
+
+test_that("an existing table is replaced only if the user was told", {
+  log <- log_of(at = list(1L))
+  replace <- \(reply, overwrite = TRUE, tool = "orion_query_to_table") {
+    decide(
+      log, key_of(1), 2L, "yes",
+      tool = tool, reply = reply, destination = "p.d.works",
+      overwrite = overwrite
+    )
+  }
+  silent <- replace("Shall I write Estimate #1 to p.d.works?")
+  expect_false(silent$allow)
+  expect_match(silent$message, "will be replaced")
+  expect_false(replace("Shall I write it to p.d.works?", "true")$allow)
+  for (reply in c(
+    "This will overwrite p.d.works. Go ahead?",
+    "The existing table p.d.works will be replaced. Go ahead?",
+    "Replacing p.d.works. Go ahead?",
+    "Soll ich p.d.works überschreiben?",
+    "Die Tabelle p.d.works wird ersetzt. Einverstanden?"
+  )) {
+    expect_true(replace(reply)$allow, info = reply)
+    expect_true(
+      replace(reply, tool = "orion_save_result_to_bq")$allow,
+      info = reply
+    )
+  }
+  save <- replace("Save q1 to p.d.works?", tool = "orion_save_result_to_bq")
+  expect_false(save$allow)
+})
+
+test_that("running and exporting do not depend on the reply or a table", {
+  log <- log_of(at = list(1L))
+  for (tool in c("orion_run_bq_query", "orion_export_bq_query")) {
+    expect_true(decide(log, key_of(1), 2L, "yes", tool = tool)$allow)
+    result <- decide(
+      log, key_of(1), 2L, "yes",
+      tool = tool, reply = "", destination = "p.d.t", overwrite = TRUE
+    )
+    expect_true(result$allow, info = tool)
+  }
+})
+
+test_that("last_reply_text() is what the user read before answering", {
+  request <- ContentToolRequest(id = "1", name = "orion_list_tables")
+  turns <- list(
+    SystemTurn(list(ContentText("system prompt with p.d.t"))),
+    UserTurn(list(ContentText("first"))),
+    AssistantTurn(list(ContentText("An early reply."))),
+    UserTurn(list(ContentText("save it"))),
+    AssistantTurn(list(ContentText("Checking."), request)),
+    UserTurn(list(ContentToolResult("tables", request = request))),
+    AssistantTurn(list(ContentText("Shall I save q1 to p.d.t?"))),
+    UserTurn(list(ContentText("yes"))),
+    AssistantTurn(list(ContentText("Saving to p.d.other.")))
+  )
+  expect_identical(
+    last_reply_text(turns),
+    "Checking.\nShall I save q1 to p.d.t?"
+  )
+  # One user message: the user has read no reply yet.
+  expect_identical(last_reply_text(turns[1:3]), "")
+  expect_identical(last_reply_text(list()), "")
 })
 
 test_that("user_messages() skips turns that carry only tool results", {
