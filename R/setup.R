@@ -3,6 +3,9 @@
 
 orion_image <- "ghcr.io/subugoe/orion-mcp:latest"
 
+# Where `gcloud auth application-default login` stores the login.
+gcloud_credentials <- "~/.config/gcloud/application_default_credentials.json"
+
 # mcptools (1.0.3, and the development version on 2026-11-12) waits at most
 # 20 x 0.2 s for each reply from a stdio MCP server, including replies to
 # tool calls. BigQuery queries and exports often take longer, so raise the
@@ -50,8 +53,15 @@ find_docker <- function(candidates = NULL) {
 }
 
 # Stop with a one-line message if something the app needs is missing.
-# `run` runs a docker command and returns its exit status.
-check_startup <- function(key_set, docker, image = orion_image, run = NULL) {
+# `run` runs a docker command and returns its exit status. With a billing
+# project the container gets the Google Cloud login file; Docker would
+# create a folder in its place if the file were missing.
+check_startup <- function(key_set,
+                          docker,
+                          image = orion_image,
+                          run = NULL,
+                          billing_project = "",
+                          credentials = gcloud_credentials) {
   run <- run %||% \(args) system2(docker, args, stdout = FALSE, stderr = FALSE)
   stop_plain <- \(...) stop(paste0(...), call. = FALSE)
   if (!key_set) {
@@ -70,7 +80,15 @@ check_startup <- function(key_set, docker, image = orion_image, run = NULL) {
     stop_plain("Docker is not running. Start Docker Desktop and try again.")
   }
   if (run(c("image", "inspect", image)) != 0) {
-    stop_plain("The orion-mcp image is missing. Run: docker pull ", image)
+    stop_plain(glue("The orion-mcp image is missing. Run: docker pull {image}"))
+  }
+  credentials <- path.expand(credentials)
+  logged_in <- file.exists(credentials) && !dir.exists(credentials)
+  if (nzchar(billing_project) && !logged_in) {
+    stop_plain(
+      "No Google Cloud login found. Run: gcloud auth application-default ",
+      "login"
+    )
   }
   invisible(TRUE)
 }
@@ -78,19 +96,27 @@ check_startup <- function(key_set, docker, image = orion_image, run = NULL) {
 # The mcptools config for the orion-dbs server only, as a list.
 # SCHEMA_REFRESH=0 makes orion-mcp use the schemas built into the image
 # instead of downloading them at start-up; `docker pull` updates them.
+# Only the login file is mounted, read-only, as in the orion-mcp README,
+# and only with a billing project: without one no query runs.
 orion_mcp_config <- function(docker,
                              billing_project,
                              export_dir,
-                             gcloud_dir = "~/.config/gcloud",
+                             credentials = gcloud_credentials,
                              image = orion_image) {
   args <- c(
     "run", "--rm", "-i",
-    "-v", paste0(path.expand(gcloud_dir), ":/root/.config/gcloud:ro"),
-    "-v", paste0(path.expand(export_dir), ":/data/exports"),
+    "-v", glue("{path.expand(export_dir)}:/data/exports"),
     "-e", "SCHEMA_REFRESH=0"
   )
   if (nzchar(billing_project)) {
-    args <- c(args, "-e", paste0("BQ_BILLING_PROJECT=", billing_project))
+    args <- c(
+      args,
+      "-v", glue(
+        "{path.expand(credentials)}:",
+        "/root/.config/gcloud/application_default_credentials.json:ro"
+      ),
+      "-e", glue("BQ_BILLING_PROJECT={billing_project}")
+    )
   }
   list(mcpServers = list(`orion-dbs` = list(
     command = docker,
@@ -114,6 +140,19 @@ orion_entry_from_file <- function(path = "~/.config/mcptools/config.json") {
     return(NULL)
   }
   list(mcpServers = list(`orion-dbs` = entry))
+}
+
+# Where exported files appear on the user's machine, for the system prompt:
+# "in <folder>". With the orion-dbs entry from the mcptools config file
+# (`from_file`), the app does not know which folder that entry mounts.
+export_folder_phrase <- function(folder, from_file = FALSE) {
+  if (from_file) {
+    return(paste0(
+      "in the export folder set in the orion-dbs entry of ",
+      "~/.config/mcptools/config.json"
+    ))
+  }
+  glue("in {folder}")
 }
 
 write_mcp_config <- function(config,

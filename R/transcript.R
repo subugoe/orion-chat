@@ -44,6 +44,13 @@ format_request <- function(request) {
   ), "\n\n")
 }
 
+# The estimate number that number_estimates() (R/approval.R) appended to a
+# dry-run result, or NA.
+estimate_note_number <- function(text) {
+  notes <- str_match_all(text, "This is Estimate #(\\d+)")[[1]]
+  if (nrow(notes) == 0) NA_character_ else notes[nrow(notes), 2]
+}
+
 format_result <- function(result, limit = transcript_result_limit) {
   has_request <- S7::S7_inherits(result@request)
   name <- if (has_request) result@request@name else "unknown tool"
@@ -66,6 +73,13 @@ format_result <- function(result, limit = transcript_result_limit) {
     label <- "Tool result"
   }
   text <- str_flatten(text, "\n")
+  # The estimate number is at the end of a dry-run result, where a long
+  # result is cut. Put it in the label, so that a later run by number can
+  # be traced to its SQL.
+  estimate <- is.null(error) && name == "orion_estimate_query_cost"
+  number <- if (estimate) estimate_note_number(text) else NA_character_
+  source <- glue("`{name}`")
+  if (!is.na(number)) source <- glue("{source}, Estimate #{number}")
   note <- NULL
   if (str_length(text) > limit) {
     note <- glue(
@@ -74,7 +88,7 @@ format_result <- function(result, limit = transcript_result_limit) {
     )
     text <- str_sub(text, 1, limit)
   }
-  str_flatten(c(glue("**{label}** (`{name}`):"), fence(text), note), "\n\n")
+  str_flatten(c(glue("**{label}** ({source}):"), fence(text), note), "\n\n")
 }
 
 format_content <- function(content) {

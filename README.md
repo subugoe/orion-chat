@@ -2,7 +2,7 @@
 
 Shiny app for asking questions about [ORION-DBs](https://orion-dbs.community/) in plain language using [GWDG AI services](https://docs.hpc.gwdg.de/services/ai-services/index.html).
 
-ORION-DBs is a collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery. Before a query runs, the app shows its estimated cost and waits for your approval. orion-mcp accepts only single `SELECT` statements.
+ORION-DBs is a collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery. Before a query runs, the app shows its estimated cost. Queries under 0.1 GB run right away; larger ones wait for your approval. orion-mcp accepts only single `SELECT` statements.
 
 Your prompts, the SQL and the result previews returned by orion-mcp are sent to the GWDG model service; full results and exports stay on your machine. GWDG describes how it handles this data in its [Chat AI data privacy notice](https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html).
 
@@ -27,9 +27,11 @@ GWDG_API_KEY=...
 BQ_BILLING_PROJECT=your-google-cloud-project-id
 # Optional, the folder for exports; this is the default:
 ORION_EXPORT_DIR=~/Downloads/orion-exports
+# Optional, queries under this size run without asking (0 turns it off):
+ORION_AUTO_RUN_GB=0.1
 ```
 
-The app starts the orion-mcp container itself. It mounts your Google Cloud credentials from `~/.config/gcloud` (read-only) and the export folder, which it creates if needed. Without `BQ_BILLING_PROJECT` the app still starts, but only schema browsing works. The container uses the table schemas built into the image; `docker pull ghcr.io/subugoe/orion-mcp:latest` updates the image and the schemas.
+The app starts the orion-mcp container itself. It mounts your Google Cloud login file, `~/.config/gcloud/application_default_credentials.json` (read-only), and the export folder, which it creates if needed. If the file is missing, the app stops and names the command that creates it, `gcloud auth application-default login`. Without `BQ_BILLING_PROJECT` the app still starts, but only schema browsing works. The container uses the table schemas built into the image; `docker pull ghcr.io/subugoe/orion-mcp:latest` updates the image and the schemas.
 
 If `BQ_BILLING_PROJECT` is not set and `~/.config/mcptools/config.json` has an `orion-dbs` entry (the set-up described in earlier versions of this README), the app uses that entry and ignores the other servers in the file.
 
@@ -43,11 +45,11 @@ shiny::runApp()
 
 The app is meant to run locally for one person. All browser sessions of the app share one orion-mcp container and its stored results, so it should not be deployed to a shared server in this form.
 
-The model menu below the message box lists the chat models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `ORION_CHAT_MODEL` in `~/.Renviron` sets another. Not every GWDG model handles tool calls well. In our earlier tests, Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably.
+The model menu below the message box lists the chat models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with DeepSeek V4.1 Flash (`deepseek-v4.1-flash-1017`), the fastest GWDG model in our tests of the query workflow; `ORION_CHAT_MODEL` in `~/.Renviron` sets another. If GWDG no longer offers the model, the app starts with another one from the list and says so in the console. Not every GWDG model handles tool calls well.
 
-Estimating costs is free. Running queries is billed to your Google Cloud project.
+Estimating costs is free. Running queries is billed to your Google Cloud project. Queries under 0.1 GB, such as looking up an institution's ROR ID, run without asking, so the model can find identifiers in the data instead of guessing them. At the BigQuery on-demand rate they cost less than $0.001 each. Larger queries, exports and new tables always need your approval. A table is written only if the model named it in full (`project.dataset.table`) in the message you approved, and an existing table is replaced only if that message said so.
 
-Each conversation is saved as a Markdown transcript in `transcripts/` inside the export folder, rewritten after each reply. It contains the questions, the SQL, the costs and the result previews. `ORION_SAVE_TRANSCRIPTS=0` in `~/.Renviron` turns this off; Transcript in the top bar downloads the current conversation either way.
+Each conversation is saved as a Markdown transcript in `transcripts/` inside the export folder, rewritten after each reply. It contains the questions, the SQL, the costs and the result previews. `ORION_SAVE_TRANSCRIPTS=0` in `~/.Renviron` turns this off; Save chat below the message box downloads the current conversation either way.
 
 ## Using another model service
 
