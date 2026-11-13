@@ -32,7 +32,7 @@ ORION_EXPORT_DIR=~/Downloads/orion-exports
 ORION_AUTO_RUN_GB=0.1
 ```
 
-The app starts the orion-mcp container itself. It mounts your Google Cloud credentials from `~/.config/gcloud` (read-only) and the export folder, which it creates if needed. Without `BQ_BILLING_PROJECT` the app still starts, but only schema browsing works. The container uses the table schemas built into the image; `docker pull ghcr.io/subugoe/orion-mcp:latest` updates the image and the schemas.
+The app starts the orion-mcp container itself. It mounts your Google Cloud login file, `~/.config/gcloud/application_default_credentials.json` (read-only), and the export folder, which it creates if needed. If the file is missing, the app stops and names the command that creates it, `gcloud auth application-default login`. Without `BQ_BILLING_PROJECT` the app still starts, but only schema browsing works. The container uses the table schemas built into the image; `docker pull ghcr.io/subugoe/orion-mcp:latest` updates the image and the schemas.
 
 If `BQ_BILLING_PROJECT` is not set and `~/.config/mcptools/config.json` has an `orion-dbs` entry (the set-up described in earlier versions of this README), the app uses that entry and ignores the other servers in the file.
 

@@ -137,7 +137,8 @@ system_prompt <- glue(
 # orion-mcp, started with a config that holds only the orion-dbs server.
 docker <- find_docker()
 key_set <- nzchar(provider$ellmer) || nzchar(provider$key())
-check_startup(key_set, docker)
+billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
+check_startup(key_set, docker, billing_project = billing_project)
 model_choices <- list_models(provider)
 export_dir <- Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports") |>
   path.expand()
@@ -145,7 +146,6 @@ dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
 # One transcript per browser session, rewritten after each reply.
 save_transcripts <- Sys.getenv("ORION_SAVE_TRANSCRIPTS", "1") != "0"
 transcript_dir <- file.path(export_dir, "transcripts")
-billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
 mcp_config <- if (!nzchar(billing_project)) orion_entry_from_file()
 if (is.null(mcp_config)) {
   if (!nzchar(billing_project)) {
