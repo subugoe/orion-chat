@@ -56,9 +56,11 @@ new_client <- function(model,
 }
 
 # Menu choices c("Display name" = "id") from the `data` of a /models reply:
-# chat models that are ready and take and give text, plus the configured
-# model, sorted by name. GWDG reports `status`, `input` and `output`; a
-# service that does not is not filtered on them.
+# chat models that are ready and take and give text, sorted by name. GWDG
+# reports `status`, `input` and `output`; a service that does not is not
+# filtered on them. The configured model is not added: if the service does
+# not list it, it is out of service (see start_model()). Only if no model
+# is left is the configured one offered, as when the list cannot be fetched.
 model_choices_from <- function(models, configured) {
   has <- \(field, value) is.null(field) || value %in% unlist(field)
   models <- keep(models, \(m) {
@@ -66,14 +68,41 @@ model_choices_from <- function(models, configured) {
       (m$status %||% "ready") == "ready" &&
       has(m$input, "text") && has(m$output, "text")
   })
-  ids <- c(map_chr(models, "id"), configured)
-  labels <- c(map_chr(models, \(m) m$name %||% m$id), configured)
+  if (length(models) == 0) {
+    return(set_names(configured, configured))
+  }
+  ids <- map_chr(models, "id")
+  labels <- map_chr(models, \(m) m$name %||% m$id)
   choices <- set_names(ids, labels)[!duplicated(ids)]
   choices[order(names(choices))]
 }
 
+# Models to start with when the configured one is not offered, in this
+# order: the GWDG models that handled the query workflow in tests.
+preferred_models <- c(
+  "deepseek-v4.1-flash-1017", "glm-5.3-flash", "qwen3.5-397b-a17b"
+)
+
+# The model to start with: the configured one if it is in the menu,
+# otherwise the first preferred model that is, otherwise the first in the
+# menu. Says so on the console, since the default id carries a date and
+# will go out of service at some point.
+start_model <- function(choices, configured, preferred = preferred_models) {
+  if (configured %in% choices || length(choices) == 0) {
+    return(configured)
+  }
+  model <- c(intersect(preferred, choices), unname(choices))[[1]]
+  message(
+    "The model '", configured, "' is not offered at the moment; starting ",
+    "with '", model, "'. Set ORION_CHAT_MODEL in ~/.Renviron to choose ",
+    "another."
+  )
+  model
+}
+
 # The models the service offers now. If the list cannot be fetched, only
-# the configured model.
+# the configured model; on the ellmer route the configured model is always
+# in the list.
 list_models <- function(provider = provider_settings()) {
   fallback <- \(e) {
     warning(

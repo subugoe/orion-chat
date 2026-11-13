@@ -140,6 +140,8 @@ key_set <- nzchar(provider$ellmer) || nzchar(provider$key())
 billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
 check_startup(key_set, docker, billing_project = billing_project)
 model_choices <- list_models(provider)
+# The configured model, or another one if the service no longer offers it.
+provider$model <- start_model(model_choices, provider$model)
 export_dir <- Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports") |>
   path.expand()
 dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)

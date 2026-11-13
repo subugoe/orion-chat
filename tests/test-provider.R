@@ -70,25 +70,67 @@ test_that("new_client() builds an Anthropic chat via ORION_CHAT_ELLMER", {
   expect_identical(chat$get_model(), "claude-sonnet-5-5")
 })
 
-test_that("model_choices_from() keeps ready models, adds the configured one", {
+test_that("model_choices_from() keeps ready models only", {
   models <- list(
     list(id = "b-model", name = "b model", status = "ready"),
     list(id = "a-model", status = "ready"),
     list(id = "down", name = "Down", status = "offline"),
     list(id = "plain")
   )
+  # A configured model the service does not list is not added.
   choices <- model_choices_from(models, "configured")
-  expect_identical(
-    unname(choices),
-    c("a-model", "b-model", "configured", "plain")
-  )
-  expect_identical(
-    names(choices),
-    c("a-model", "b model", "configured", "plain")
-  )
+  expect_identical(unname(choices), c("a-model", "b-model", "plain"))
+  expect_identical(names(choices), c("a-model", "b model", "plain"))
   expect_false("down" %in% choices)
-  expect_identical(model_choices_from(list(), "x"), c(x = "x"))
+  # A listed one stays, once.
+  expect_identical(model_choices_from(models, "b-model"), choices)
   expect_length(model_choices_from(list(list(id = "x")), "x"), 1)
+  # No usable list: the configured model, as when the list cannot be fetched.
+  expect_identical(model_choices_from(list(), "x"), c(x = "x"))
+  offline <- list(list(id = "down", status = "offline"))
+  expect_identical(model_choices_from(offline, "x"), c(x = "x"))
+})
+
+test_that("start_model() keeps the configured model if it is offered", {
+  choices <- c("B" = "b-model", "DeepSeek" = "deepseek-v4.1-flash-1017")
+  expect_silent(
+    model <- start_model(choices, "b-model")
+  )
+  expect_identical(model, "b-model")
+  # The list could not be fetched, or the ellmer route: it is always there.
+  expect_silent(start_model(c(m1 = "m1"), "m1"))
+})
+
+test_that("start_model() replaces a retired model and says so", {
+  retired <- "deepseek-v4.1-flash-1017"
+  # The first preferred model on offer, in the order of preferred_models.
+  choices <- model_choices_from(
+    list(
+      list(id = "another-model", name = "A model"),
+      list(id = "qwen3.5-397b-a17b", name = "Qwen 3.5"),
+      list(id = "glm-5.3-flash", name = "GLM 5.3 Flash")
+    ),
+    retired
+  )
+  expect_false(retired %in% choices)
+  expect_message(
+    model <- start_model(choices, retired),
+    "ORION_CHAT_MODEL"
+  )
+  expect_identical(model, "glm-5.3-flash")
+  expect_message(start_model(choices, retired), retired, fixed = TRUE)
+  expect_message(start_model(choices, retired), "glm-5.3-flash", fixed = TRUE)
+  # No preferred model on offer: the first in the menu.
+  others <- model_choices_from(
+    list(
+      list(id = "z-model", name = "Zeta"),
+      list(id = "m-model", name = "Mu")
+    ),
+    retired
+  )
+  expect_message(model <- start_model(others, retired), "ORION_CHAT_MODEL")
+  expect_identical(model, "m-model")
+  expect_identical(preferred_models[[1]], provider_settings(fake_env())$model)
 })
 
 test_that("tool_choice_problem() is skipped on the ellmer route", {
