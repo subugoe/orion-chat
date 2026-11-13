@@ -71,8 +71,10 @@ test_that("record_estimate() numbers estimates and keeps the first number", {
   expect_identical(record_estimate(log, "SELECT 2", 20, 1L), 2L)
   expect_identical(record_estimate(log, "SELECT   1", 10, 3L), 1L)
   record <- log$records[[sql_key("SELECT 1")]]
-  expect_identical(record$seen_at, 1L)
-  expect_identical(record$last_at, 3L)
+  expect_identical(record$at, c(1L, 3L))
+  # A second dry-run at the same message is recorded once.
+  record_estimate(log, "SELECT 1", 10, 3L)
+  expect_identical(log$records[[sql_key("SELECT 1")]]$at, c(1L, 3L))
   expect_identical(record$bytes, 10)
 })
 
@@ -217,6 +219,122 @@ test_that("gate_decision() counts only estimates since the previous approval", {
   expect_false(decide(log, k1, 3L, "yes")$allow)
   # The older one can still be run by number.
   expect_true(decide(log, k1, 3L, "run #1")$allow)
+})
+
+# The cases of a plain "yes" after several steps. `at` gives, per estimate
+# number, the user-message counts at which its SQL was dry-run; `released`
+# the count at which it was run, if it was.
+key_of <- \(number) sql_key(paste("SELECT", number))
+log_of <- function(at, released = list(), approvals = integer(),
+                   bytes = 15e9, auto_run_bytes = 0) {
+  log <- new_estimate_log(auto_run_bytes)
+  bytes <- rep_len(bytes, length(at))
+  for (number in seq_along(at)) {
+    for (count in at[[number]]) {
+      record_estimate(log, paste("SELECT", number), bytes[[number]], count)
+    }
+    if (number <= length(released) && !is.null(released[[number]])) {
+      record_release(log, key_of(number), released[[number]])
+    }
+  }
+  for (count in approvals) record_approval(log, count)
+  log
+}
+
+test_that("yes after a revision runs the revised estimate", {
+  log <- log_of(at = list(1L, 2L))
+  expect_true(decide(log, key_of(2), 3L, "yes")$allow)
+})
+
+test_that("yes after a revision does not run the earlier estimate", {
+  log <- log_of(at = list(1L, 2L))
+  result <- decide(log, key_of(1), 3L, "yes")
+  expect_false(result$allow)
+  expect_match(result$message, "(open estimates: #2)", fixed = TRUE)
+})
+
+test_that("yes still counts when the model dry-runs the SQL again", {
+  log <- log_of(at = list(c(1L, 2L)))
+  expect_true(decide(log, key_of(1), 2L, "yes")$allow)
+})
+
+test_that("yes is unclear when one step showed two estimates", {
+  log <- log_of(at = list(1L, 1L))
+  result <- decide(log, key_of(2), 2L, "yes")
+  expect_false(result$allow)
+  expect_match(result$message, "(open estimates: #1, #2)", fixed = TRUE)
+})
+
+test_that("'yes, both' covers the two estimates of one step", {
+  log <- log_of(at = list(1L, 1L))
+  expect_true(decide(log, key_of(2), 2L, "yes, both")$allow)
+  expect_true(decide(log, key_of(1), 2L, "yes, both")$allow)
+})
+
+test_that("yes to a follow-up runs it, after an earlier estimate has run", {
+  log <- log_of(
+    at = list(c(1L, 2L), 2L), released = list(2L), approvals = 2L
+  )
+  expect_true(decide(log, key_of(2), 3L, "yes")$allow)
+})
+
+test_that("yes to a follow-up does not run the earlier estimate again", {
+  log <- log_of(
+    at = list(c(1L, 2L), 2L), released = list(2L), approvals = 2L
+  )
+  result <- decide(log, key_of(1), 3L, "yes")
+  expect_false(result$allow)
+  expect_match(result$message, "(open estimates: #2)", fixed = TRUE)
+})
+
+test_that("an estimate left over from an earlier approval needs its number", {
+  log <- log_of(
+    at = list(1L, 1L), released = list(NULL, 2L), approvals = 2L
+  )
+  result <- decide(log, key_of(1), 3L, "ok")
+  expect_false(result$allow)
+  expect_no_match(result$message, "open estimates")
+  expect_true(decide(log, key_of(1), 3L, "run #1")$allow)
+})
+
+test_that("yes still counts after a question in between", {
+  log <- log_of(at = list(1L))
+  expect_true(decide(log, key_of(1), 3L, "yes")$allow)
+})
+
+test_that("an estimate dry-run only after the yes is not covered by it", {
+  log <- log_of(at = list(2L))
+  result <- decide(log, key_of(1), 2L, "yes")
+  expect_false(result$allow)
+  expect_match(result$message, "after the user's last message")
+})
+
+test_that("a small lookup beside the main query leaves the yes clear", {
+  log <- log_of(
+    at = list(1L, 1L), bytes = c(5e6, 15e9), auto_run_bytes = 1e8
+  )
+  result <- decide(log, key_of(2), 2L, "yes")
+  expect_true(result$allow)
+  expect_false(result$unasked)
+})
+
+test_that("an old estimate can be run by its number", {
+  log <- log_of(at = list(1L, 3L), approvals = 2L)
+  expect_true(decide(log, key_of(1), 5L, "run #1")$allow)
+})
+
+test_that("a release covers a retry in the same reply, not a later yes", {
+  log <- log_of(at = list(1L), released = list(2L), approvals = 2L)
+  expect_identical(log$records[[key_of(1)]]$released_at, 2L)
+  expect_true(decide(log, key_of(1), 2L, "yes")$allow)
+  expect_false(decide(log, key_of(1), 3L, "yes")$allow)
+  # Shown again after the run: open again.
+  record_estimate(log, "SELECT 1", 15e9, 3L)
+  expect_true(decide(log, key_of(1), 4L, "yes")$allow)
+  # Unknown keys are ignored.
+  expect_no_error(record_release(log, NULL, 2L))
+  expect_no_error(record_release(log, "no-such-key", 2L))
+  expect_length(log$records, 1)
 })
 
 test_that("gate_decision() rejects an estimate made after the approval", {

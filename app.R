@@ -27,14 +27,16 @@ approval_gate <- function(request, chat, log) {
   turns <- chat$get_turns()
   n <- length(user_messages(turns))
   log$n_user_messages <- n
+  key <- request_key(request@arguments, log)
   decision <- gate_decision(
-    request@name, request_key(request@arguments, log), log, n,
+    request@name, key, log, n,
     parse_approval(latest_user_text(turns)),
     estimate = request@arguments$estimate
   )
   if (!decision$allow) tool_reject(decision$message)
   if (request@name %in% paid_tools && !decision$unasked) {
     record_approval(log, n)
+    record_release(log, key, n)
   }
 }
 

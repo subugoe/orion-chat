@@ -66,9 +66,10 @@ sql_key <- function(sql) {
 # The record of dry-runs and approvals for one browser session. It is an
 # environment so that every chat client of the session (one per model)
 # writes to the same record.
-#   records:   per SQL key, list(number, sql, bytes, seen_at, last_at);
-#              seen_at and last_at are the number of user messages when the
-#              SQL was first and last dry-run
+#   records:   per SQL key, list(number, sql, bytes, at, released_at);
+#              `at` holds the number of user messages at each dry-run of the
+#              SQL, `released_at` that number when the gate last let a paid
+#              call for it through (NULL before)
 #   approvals: user-message counts of messages that released a paid call
 #   n_user_messages: the count when the current tool call was requested
 #   auto_run_bytes: estimates below this size run with orion_run_bq_query
@@ -116,12 +117,45 @@ record_estimate <- function(log, sql, bytes, n_user_messages) {
       number = length(log$records) + 1L,
       sql = sql,
       bytes = bytes,
-      seen_at = n_user_messages
+      at = integer()
     )
   }
-  record$last_at <- n_user_messages
+  record$at <- union(record$at, as.integer(n_user_messages))
   log$records[[key]] <- record
   record$number
+}
+
+# The user-message count at which the user last saw this estimate before
+# message `n`: the latest dry-run before it. NA if the SQL was only dry-run
+# after the user's latest message.
+shown_at <- function(record, n) {
+  before <- record$at[record$at < n]
+  if (length(before) == 0) NA_integer_ else max(before)
+}
+
+# The gate let a paid call for this estimate through at message `n`.
+record_release <- function(log, key, n_user_messages) {
+  if (!is.null(key) && !is.null(log$records[[key]])) {
+    log$records[[key]]$released_at <- as.integer(n_user_messages)
+  }
+  invisible(log)
+}
+
+# The estimates a plain approval at message `n` can refer to: shown before
+# `n` and since the previous approval, and not run since they were last
+# shown. A release at `n` itself does not close an estimate, so that the
+# same approval covers a retry in the same reply. Queries small enough to
+# run unasked do not count, except `current`, the one being decided.
+open_estimates <- function(log, n, current = NULL) {
+  approvals <- log$approvals
+  previous <- max(c(0L, approvals[approvals < n]))
+  keep(log$records, \(r) {
+    shown <- shown_at(r, n)
+    released <- r$released_at
+    !is.na(shown) && shown >= previous &&
+      (is.null(released) || released >= n || shown > released) &&
+      (!runs_unasked(r, log) || identical(r$number, current$number))
+  })
 }
 
 # The key of estimate number `number`, or NULL.
@@ -163,8 +197,9 @@ ask_again <- paste0(
 )
 
 how_to_approve <- paste0(
-  "The user approves with 'yes' (one open estimate), with the numbers ",
-  "('run #2', 'run #2 and #3') or with 'run all' (all open estimates)."
+  "The user approves with 'yes' (if your last message showed one ",
+  "estimate), with the numbers ('run #2', 'run #2 and #3') or with ",
+  "'run all' (all estimates of your last message)."
 )
 
 # Whether a tool call may run. `estimated` is the log (or a list with the
@@ -209,7 +244,7 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
   if (tool == "orion_run_bq_query" && runs_unasked(record, estimated)) {
     return(gate_allow(unasked = TRUE))
   }
-  if (record$seen_at >= n_user_messages) {
+  if (is.na(shown_at(record, n_user_messages))) {
     return(gate_reject(
       "Not run: this exact SQL was dry-run after the user's last message, ",
       "so the user has not seen it. ", ask_again
@@ -233,28 +268,22 @@ gate_decision <- function(tool, sql_key, estimated, n_user_messages, approval,
     ))
   }
 
-  # "yes" or "run all" cover the estimates made since the previous approval
-  # (and before the user's latest message); a plain "yes" only if there is
-  # just one. Small lookups do not count, unless this call is one.
-  approvals <- estimated$approvals
-  previous <- max(c(0L, approvals[approvals < n_user_messages]))
-  pending <- keep(
-    estimated$records,
-    \(r) {
-      r$last_at >= previous && r$last_at < n_user_messages &&
-        (!runs_unasked(r, estimated) || identical(r, record))
-    }
-  )
-  covered <- length(pending) == 1 || isTRUE(approval$all)
-  if (sql_key %in% names(pending) && covered) {
+  # A plain "yes" refers to the latest step: the open estimates that were
+  # shown last. It covers the call if there is just one; "all" and "both"
+  # cover every estimate of that step.
+  open <- open_estimates(estimated, n_user_messages, current = record)
+  shown <- map_int(open, \(r) shown_at(r, n_user_messages))
+  latest <- open[shown == max(shown, -Inf)]
+  covered <- length(latest) == 1 || isTRUE(approval$all)
+  if (sql_key %in% names(latest) && covered) {
     return(gate_allow())
   }
-  numbers <- sort(map_int(pending, "number"))
-  open <- if (length(numbers) > 0) {
+  numbers <- sort(map_int(latest, "number"))
+  listed <- if (length(numbers) > 0) {
     paste0(" (open estimates: #", str_flatten(numbers, ", #"), ")")
   }
   gate_reject(
-    "Not run: it is not clear which estimate the user approved", open,
+    "Not run: it is not clear which estimate the user approved", listed,
     ". Ask which to run. ", how_to_approve
   )
 }
