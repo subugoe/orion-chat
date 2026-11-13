@@ -494,6 +494,29 @@ number_estimates <- function(tools, log) {
   })
 }
 
+# The orion-mcp descriptions are written for clients that send SQL and ask
+# before every query. Remove or replace the two sentences that contradict
+# this app. A sentence that is not found (another server version) is left
+# alone; the text run_by_estimate() appends still holds.
+app_description <- function(description, auto_run_bytes = 0) {
+  one_argument <- paste0(
+    "Takes exactly one argument — query — which must be the complete, ",
+    "fully-qualified SQL string. "
+  )
+  never_skip <- "Never skip the cost confirmation step, even for small queries."
+  description <- str_replace(description, fixed(one_argument), "")
+  if (auto_run_bytes > 0) {
+    description <- str_replace(
+      description, fixed(never_skip),
+      paste0(
+        "In this app, queries whose estimate is under ", auto_run_bytes / 1e9,
+        " GB run without asking; all others need the user's approval."
+      )
+    )
+  }
+  description
+}
+
 # The tools that take SQL take the number of a cost estimate instead, and
 # run its SQL exactly as it was dry-run. The model cannot retype the SQL
 # (it often changed it slightly) or run SQL that was never estimated.
@@ -533,7 +556,7 @@ run_by_estimate <- function(tools, log) {
       fun,
       name = tool@name,
       description = paste(
-        tool@description,
+        app_description(tool@description, log$auto_run_bytes %||% 0),
         "In this app the tool takes no SQL: pass `estimate`, the number of",
         "an approved cost estimate, and its SQL runs exactly as it was",
         "dry-run."

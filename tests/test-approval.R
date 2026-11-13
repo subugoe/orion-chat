@@ -625,6 +625,51 @@ test_that("number_estimates() numbers successful dry-runs only", {
   expect_identical(log$records[[sql_key("SELECT 1")]]$bytes, 123L)
 })
 
+# The opening of the orion_run_bq_query description in orion-mcp (server.R
+# at 69fbc74).
+server_run_description <- paste0(
+  "STEP 5 OF QUERY WORKFLOW: Execute a BigQuery SQL query, return ",
+  "results, and summarise them in plain language. ",
+  "PREREQUISITE: orion_estimate_query_cost MUST have been called for ",
+  "this exact SQL AND the user must have explicitly confirmed they ",
+  "want to proceed after seeing the cost. Never skip the cost ",
+  "confirmation step, even for small queries. Takes exactly one ",
+  "argument — query — which must be the complete, fully-qualified ",
+  "SQL string. ",
+  "Every result is stored in the orion-mcp server under a stable ",
+  "name (q1, q2, ...)."
+)
+
+test_that("app_description() removes the sentences this app contradicts", {
+  on <- app_description(server_run_description, auto_run_bytes = 1e8)
+  expect_no_match(on, "Takes exactly one argument", fixed = TRUE)
+  expect_no_match(on, "Never skip", fixed = TRUE)
+  expect_match(
+    on,
+    paste0(
+      "seeing the cost. In this app, queries whose estimate is under ",
+      "0.1 GB run without asking; all others need the user's approval. ",
+      "Every result"
+    ),
+    fixed = TRUE
+  )
+
+  off <- app_description(server_run_description, auto_run_bytes = 0)
+  expect_no_match(off, "Takes exactly one argument", fixed = TRUE)
+  expect_match(
+    off,
+    "Never skip the cost confirmation step, even for small queries. Every",
+    fixed = TRUE
+  )
+  expect_no_match(off, "In this app", fixed = TRUE)
+})
+
+test_that("app_description() leaves other descriptions unchanged", {
+  other <- "Export the result of a query to a file. Costs nothing."
+  expect_identical(app_description(other, 1e8), other)
+  expect_identical(app_description(other, 0), other)
+})
+
 test_that("run_by_estimate() replaces the SQL by an estimate number", {
   seen <- NULL
   run <- ellmer::tool(
@@ -633,7 +678,7 @@ test_that("run_by_estimate() replaces the SQL by an estimate number", {
       seen <<- args
       "done"
     },
-    name = "orion_export_bq_query", description = "Export.",
+    name = "orion_export_bq_query", description = server_run_description,
     arguments = list(
       query = type_string("SQL"),
       filename = type_string("File", required = FALSE)
@@ -652,6 +697,9 @@ test_that("run_by_estimate() replaces the SQL by an estimate number", {
   expect_named(wrapped@arguments@properties, c("estimate", "filename"))
   expect_true(wrapped@arguments@properties$estimate@required)
   expect_match(wrapped@description, "takes no SQL", fixed = TRUE)
+  expect_no_match(
+    wrapped@description, "Takes exactly one argument", fixed = TRUE
+  )
 
   expect_identical(wrapped(estimate = 1L, filename = "a.csv"), "done")
   expect_identical(

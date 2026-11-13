@@ -69,12 +69,20 @@ small_main_rule <- if (auto_run > 0) {
 } else {
   ""
 }
+approval_rule <- if (auto_run > 0) {
+  glue(
+    "Queries under {auto_run / 1e9} GB run right away; larger queries, ",
+    "exports and new tables run only after the user approves them in the ",
+    "chat."
+  )
+} else {
+  "Queries only run after the user explicitly approves them in the chat."
+}
 
 system_prompt <- glue(
   "You help researchers answer questions with ORION-DBs (open research ",
   "information on Google BigQuery) through the orion_* tools. Follow the ",
-  "tool descriptions exactly. Queries only run after the user explicitly ",
-  "approves them in the chat.\n\n",
+  "tool descriptions exactly. {approval_rule}\n\n",
   "Aim for one query that answers the question, and get there in few ",
   "steps:\n",
   "1. Read the schema only of the tables you will use. Do not list or ",
