@@ -191,12 +191,33 @@ estimate_key <- function(log, number) {
   if (length(key) == 1) key
 }
 
+# The `estimate` argument of a tool call as an integer: a whole number, or
+# text of digits with an optional "#". NA for anything else. ellmer converts
+# arguments to their declared types only after the gate has run, so a model
+# that sends "1" reaches the gate with text.
+estimate_number <- function(value) {
+  if (length(value) != 1 || is.na(value)) {
+    return(NA_integer_)
+  }
+  if (is.character(value)) {
+    value <- str_match(str_trim(value), "^#?(\\d+)$")[1, 2]
+  } else if (!is.numeric(value) || value != trunc(value)) {
+    return(NA_integer_)
+  }
+  suppressWarnings(as.integer(value))
+}
+
+pass_integer <- paste0(
+  "pass the number of the estimate as an integer, for example ",
+  "estimate = 1."
+)
+
 # The key for a paid tool call: that of its `estimate` number, or NULL. In
 # this app the query tools take no SQL, only the number of an estimate.
 request_key <- function(arguments, log) {
-  estimate <- arguments$estimate
-  if (is.numeric(estimate) && length(estimate) == 1) {
-    estimate_key(log, estimate)
+  number <- estimate_number(arguments$estimate)
+  if (!is.na(number)) {
+    estimate_key(log, number)
   }
 }
 
@@ -323,8 +344,15 @@ approval_decision <- function(tool, sql_key, estimated, n_user_messages,
   }
 
   if (is.null(record) && !is.null(estimate)) {
+    number <- estimate_number(estimate)
+    if (is.na(number)) {
+      return(gate_reject(
+        "Not run: ", pass_integer, " Existing estimates: ",
+        estimate_list(estimated), "."
+      ))
+    }
     return(gate_reject(
-      "Not run: there is no Estimate #", estimate, ". Existing estimates: ",
+      "Not run: there is no Estimate #", number, ". Existing estimates: ",
       estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
       "estimate numbers and costs. Dry-run the SQL with it, show the user ",
       "the number and cost it returns, and wait for approval."
@@ -483,10 +511,16 @@ run_by_estimate <- function(tools, log) {
     )
     fun <- function() {
       args <- compact(as.list(environment()))
-      key <- estimate_key(log, args$estimate)
+      number <- estimate_number(args$estimate)
+      if (is.na(number)) {
+        return(ellmer::ContentToolResult(
+          error = paste0("Not run: ", pass_integer)
+        ))
+      }
+      key <- estimate_key(log, number)
       if (is.null(key)) {
         return(ellmer::ContentToolResult(
-          error = paste0("There is no Estimate #", args$estimate, ".")
+          error = paste0("There is no Estimate #", number, ".")
         ))
       }
       args$query <- log$records[[key]]$sql

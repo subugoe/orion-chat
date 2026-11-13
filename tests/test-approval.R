@@ -279,6 +279,52 @@ test_that("an estimate number the tool never gave is refused clearly", {
   expect_match(empty$message, "Existing estimates: none", fixed = TRUE)
 })
 
+test_that("an estimate number sent as text finds the estimate", {
+  log <- new_estimate_log()
+  record_estimate(log, "SELECT 1", 10, 1L)
+  key <- sql_key("SELECT 1")
+  for (value in list(1, 1L, "1", "#1", " 1 ")) {
+    expect_identical(estimate_number(value), 1L)
+    expect_identical(request_key(list(estimate = value), log), key)
+    result <- gate_decision(
+      run, request_key(list(estimate = value), log), log, 2L,
+      parse_approval("yes"),
+      estimate = value
+    )
+    expect_true(result$allow)
+  }
+  # A number that does not exist is named as a number.
+  missing <- gate_decision(
+    run, request_key(list(estimate = "#3"), log), log, 2L,
+    parse_approval("yes"),
+    estimate = "#3"
+  )
+  expect_match(missing$message, "there is no Estimate #3.", fixed = TRUE)
+})
+
+test_that("an estimate argument that is no number asks for an integer", {
+  log <- new_estimate_log()
+  record_estimate(log, "SELECT 1", 10, 1L)
+  for (value in list("one", NULL, c(1, 2), 1.5, "1.5", "", NA, list(1, 2))) {
+    expect_identical(estimate_number(value), NA_integer_)
+    expect_null(request_key(list(estimate = value), log))
+    result <- gate_decision(
+      run, request_key(list(estimate = value), log), log, 2L,
+      parse_approval("yes"),
+      estimate = value
+    )
+    expect_false(result$allow)
+    expect_match(result$message, "pass the number")
+    expect_no_match(result$message, "there is no Estimate")
+  }
+  text <- gate_decision(
+    run, NULL, log, 2L, parse_approval("yes"),
+    estimate = "one"
+  )
+  expect_match(text$message, "as an integer")
+  expect_match(text$message, "Existing estimates: #1", fixed = TRUE)
+})
+
 test_that("request_key() goes by the estimate number only", {
   log <- new_estimate_log()
   record_estimate(log, "SELECT 1", 10, 1L)
@@ -616,6 +662,15 @@ test_that("run_by_estimate() replaces the SQL by an estimate number", {
   missing <- wrapped(estimate = 7L)
   expect_s3_class(missing, "ellmer::ContentToolResult")
   expect_match(missing@error, "no Estimate #7")
+  # The number as text, as a model may send it.
+  seen <- NULL
+  expect_identical(wrapped(estimate = "#1"), "done")
+  expect_identical(seen$query, "SELECT doi\nFROM works")
+  expect_identical(wrapped(estimate = "1", filename = "b.csv"), "done")
+  expect_match(wrapped(estimate = "7")@error, "no Estimate #7")
+  for (value in list("one", c(1, 2))) {
+    expect_match(wrapped(estimate = value)@error, "pass the number")
+  }
 })
 
 test_that("auto_run_bytes() reads ORION_AUTO_RUN_GB", {
