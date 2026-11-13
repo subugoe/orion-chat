@@ -186,7 +186,7 @@ greeting <- glue(
   "information on Google BigQuery. Before running any query, I'll show ",
   "you the SQL and what it will cost. Nothing runs until you say **yes**",
   if (auto_run > 0) {
-    glue(", except small lookups under {auto_run / 1e9} GB.")
+    glue(", except queries under {auto_run / 1e9} GB.")
   } else {
     "."
   },
@@ -215,7 +215,7 @@ help_text <- tags$ul(
     "Cloud project.",
     if (auto_run > 0) {
       glue(
-        " Small lookups under {auto_run / 1e9} GB, such as finding an ",
+        " Queries under {auto_run / 1e9} GB, such as finding an ",
         "institution's ROR ID, run without asking."
       )
     }
