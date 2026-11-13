@@ -13,7 +13,7 @@ $c-text:      #333333;
 $c-muted:     #808080;
 $c-rule:      #E2E2E2;   // hairlines
 $c-line:      #CFCFCF;   // outlines of things you can click or type in
-$c-tint:      #F4F2EF;   // quiet warm surface
+$c-tint:      #F4F2EF;   // warm grey background
 
 // One corner radius for every box: messages, the input, the menu.
 $sub-radius: 6px;
@@ -201,7 +201,7 @@ header.shiny-chat-page-header {
   h3 { font-size: 1.0625rem; color: var(--sub-accent); }
   h4 { font-size: 1rem; }
 
-  // Lists: quiet grey dashes, blue numbers.
+  // Lists: grey dashes, blue numbers.
   ul { list-style-type: "–\00a0\00a0"; padding-left: 1.25rem; }
   ol { padding-left: 1.5rem; }
   li { margin-bottom: 0.25em; }

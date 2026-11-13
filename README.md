@@ -2,8 +2,7 @@
 
 Shiny app for asking questions about [ORION-DBs](https://orion-dbs.community/) in plain language using [GWDG AI services](https://docs.hpc.gwdg.de/services/ai-services/index.html).
 
-ORION-DBs is a growing collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery.
-Safeguards check every query, show its cost in advance, and run nothing without approval.
+ORION-DBs is a collection of open research information on Google BigQuery, including OpenAlex, Crossref and OpenAIRE. The language model writes the SQL queries, which then run on BigQuery. Before a query runs, the app shows its estimated cost and waits for your approval. orion-mcp accepts only single `SELECT` statements.
 
 Your prompts, the SQL and the result previews returned by orion-mcp are sent to the GWDG model service; full results and exports stay on your machine. GWDG describes how it handles this data in its [Chat AI data privacy notice](https://docs.hpc.gwdg.de/services/ai-services/chat-ai/data-privacy/index.html).
 
@@ -44,7 +43,9 @@ shiny::runApp()
 
 The app is meant to run locally for one person. All browser sessions of the app share one orion-mcp container and its stored results, so it should not be deployed to a shared server in this form.
 
-The model menu below the message box lists the chat models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `ORION_CHAT_MODEL` in `~/.Renviron` sets another. Not every GWDG model handles tool calls well; Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably in earlier tests. Estimating costs is free; running queries is billed to the Google Cloud project.
+The model menu below the message box lists the chat models GWDG currently offers. Switching keeps the conversation, so you can ask the same question of another model. The app starts with GLM 5.3 Flash (`glm-5.3-flash`); `ORION_CHAT_MODEL` in `~/.Renviron` sets another. Not every GWDG model handles tool calls well. In our earlier tests, Qwen 3.5 (`qwen3.5-397b-a17b`) handled the query workflow most reliably.
+
+Estimating costs is free. Running queries is billed to your Google Cloud project.
 
 Each conversation is saved as a Markdown transcript in `transcripts/` inside the export folder, rewritten after each reply. It contains the questions, the SQL, the costs and the result previews. `ORION_SAVE_TRANSCRIPTS=0` in `~/.Renviron` turns this off; Transcript in the top bar downloads the current conversation either way.
 
