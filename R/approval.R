@@ -93,7 +93,8 @@ sql_key <- function(sql) {
 # environment so that every chat client of the session (one per model)
 # writes to the same record.
 #   records:   per SQL key, list(number, sql, bytes, at, released_at);
-#              `at` holds the number of user messages at each dry-run of the
+#              `sql` and `bytes` are those of the latest dry-run, `at`
+#              holds the number of user messages at each dry-run of the
 #              SQL, `released_at` that number when the gate last let a paid
 #              call for it through (NULL before)
 #   approvals: user-message counts of messages that released a paid call
@@ -131,7 +132,9 @@ runs_unasked <- function(record, log) {
 }
 
 # Record a successful dry-run and return its number. Running the same SQL
-# again keeps its number.
+# again keeps its number, but the record takes the text and size of the
+# latest dry-run: the key ignores spacing that BigQuery does not (inside
+# string literals), and the data may have grown since.
 record_estimate <- function(log, sql, bytes, n_user_messages) {
   key <- sql_key(sql)
   if (is.null(key)) {
@@ -141,11 +144,11 @@ record_estimate <- function(log, sql, bytes, n_user_messages) {
   if (is.null(record)) {
     record <- list(
       number = length(log$records) + 1L,
-      sql = sql,
-      bytes = bytes,
       at = integer()
     )
   }
+  record$sql <- sql
+  record$bytes <- bytes
   record$at <- union(record$at, as.integer(n_user_messages))
   log$records[[key]] <- record
   record$number

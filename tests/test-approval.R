@@ -106,7 +106,7 @@ test_that("sql_key() ignores whitespace and handles long or missing SQL", {
   expect_null(sql_key(list("SELECT 1")))
 })
 
-test_that("record_estimate() numbers estimates and keeps the first number", {
+test_that("record_estimate() keeps the number; SQL and bytes follow the latest dry-run", {
   log <- new_estimate_log()
   expect_identical(record_estimate(log, "SELECT 1", 10, 1L), 1L)
   expect_identical(record_estimate(log, "SELECT 2", 20, 1L), 2L)
@@ -117,6 +117,24 @@ test_that("record_estimate() numbers estimates and keeps the first number", {
   record_estimate(log, "SELECT 1", 10, 3L)
   expect_identical(log$records[[sql_key("SELECT 1")]]$at, c(1L, 3L))
   expect_identical(record$bytes, 10)
+
+  # Same key, but BigQuery sees a different string literal: the record
+  # holds the text and size of the latest dry-run, under the same number.
+  expect_identical(record_estimate(log, "SELECT 'a  b'", 10, 4L), 3L)
+  expect_identical(record_estimate(log, "SELECT 'a b'", 20, 5L), 3L)
+  latest <- log$records[[sql_key("SELECT 'a b'")]]
+  expect_identical(latest$sql, "SELECT 'a b'")
+  expect_identical(latest$bytes, 20)
+  expect_identical(latest$at, c(4L, 5L))
+})
+
+test_that("an estimate that grew past the limit no longer runs unasked", {
+  log <- new_estimate_log(auto_run_bytes = 1e8)
+  record_estimate(log, "SELECT lookup", 5e6, 1L)
+  key <- sql_key("SELECT lookup")
+  expect_true(runs_unasked(log$records[[key]], log))
+  record_estimate(log, "SELECT  lookup", 2e8, 2L)
+  expect_false(runs_unasked(log$records[[key]], log))
 })
 
 run <- "orion_run_bq_query"
