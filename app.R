@@ -79,6 +79,37 @@ approval_rule <- if (auto_run > 0) {
   "Queries only run after the user explicitly approves them in the chat."
 }
 
+# orion-mcp, started with a config that holds only the orion-dbs server.
+docker <- find_docker()
+key_set <- nzchar(provider$ellmer) || nzchar(provider$key())
+billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
+check_startup(key_set, docker, billing_project = billing_project)
+model_choices <- list_models(provider)
+# The configured model, or another one if the service no longer offers it.
+provider$model <- start_model(model_choices, provider$model)
+export_dir <- Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports") |>
+  path.expand()
+dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
+# One transcript per browser session, rewritten after each reply.
+save_transcripts <- Sys.getenv("ORION_SAVE_TRANSCRIPTS", "1") != "0"
+transcript_dir <- file.path(export_dir, "transcripts")
+mcp_config <- if (!nzchar(billing_project)) orion_entry_from_file()
+from_file <- !is.null(mcp_config)
+if (!from_file) {
+  if (!nzchar(billing_project)) {
+    message("BQ_BILLING_PROJECT is not set: only schema browsing will work.")
+  }
+  mcp_config <- orion_mcp_config(docker, billing_project, export_dir)
+} else {
+  message("Using the orion-dbs entry in ~/.config/mcptools/config.json.")
+}
+message("Starting the orion-mcp container ...")
+orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
+
+home_path <- \(path) str_replace(path, fixed(path.expand("~")), "~")
+# Where exported files appear, as named in the system prompt.
+export_folder <- export_folder_phrase(home_path(export_dir), from_file)
+
 system_prompt <- glue(
   "You help researchers answer questions with ORION-DBs (open research ",
   "information on Google BigQuery) through the orion_* tools. Follow the ",
@@ -135,38 +166,12 @@ system_prompt <- glue(
   "wants to plot or analyse a result in R, export it with ",
   "orion_export_result (free) and give R code in tidyverse style that ",
   "reads the exported file, e.g. readr::read_csv(\"oa_by_year.csv\") ",
-  "followed by dplyr and ggplot2, noting that the file is in the app's ",
-  "export folder (by default ~/Downloads/orion-exports).\n\n",
+  "followed by dplyr and ggplot2, noting that the file is ",
+  "{export_folder}.\n\n",
   "Write in a plain, factual style. Never use emojis or decorative ",
   "symbols (such as ✅, ❌, 🚀, ⚠️, 📊), not even in headings, lists or ",
   "tables; use words instead (e.g. 'yes'/'no', 'Note:')."
 )
-
-# orion-mcp, started with a config that holds only the orion-dbs server.
-docker <- find_docker()
-key_set <- nzchar(provider$ellmer) || nzchar(provider$key())
-billing_project <- Sys.getenv("BQ_BILLING_PROJECT")
-check_startup(key_set, docker, billing_project = billing_project)
-model_choices <- list_models(provider)
-# The configured model, or another one if the service no longer offers it.
-provider$model <- start_model(model_choices, provider$model)
-export_dir <- Sys.getenv("ORION_EXPORT_DIR", "~/Downloads/orion-exports") |>
-  path.expand()
-dir.create(export_dir, recursive = TRUE, showWarnings = FALSE)
-# One transcript per browser session, rewritten after each reply.
-save_transcripts <- Sys.getenv("ORION_SAVE_TRANSCRIPTS", "1") != "0"
-transcript_dir <- file.path(export_dir, "transcripts")
-mcp_config <- if (!nzchar(billing_project)) orion_entry_from_file()
-if (is.null(mcp_config)) {
-  if (!nzchar(billing_project)) {
-    message("BQ_BILLING_PROJECT is not set: only schema browsing will work.")
-  }
-  mcp_config <- orion_mcp_config(docker, billing_project, export_dir)
-} else {
-  message("Using the orion-dbs entry in ~/.config/mcptools/config.json.")
-}
-message("Starting the orion-mcp container ...")
-orion_tools <- mcp_tools(config = write_mcp_config(mcp_config))
 
 # A chat with the orion tools and the approval gate. `log` and `tools` are
 # shared by all clients of a browser session, so estimates stay valid after
@@ -208,7 +213,6 @@ footer_link <- \(text, href) {
 
 # Help next to the model menu: how to use the chat, in the order a first
 # conversation goes. Set-up details stay in the README.
-home_path <- \(path) str_replace(path, fixed(path.expand("~")), "~")
 help_item <- \(lead, ...) tags$li(tags$b(lead), " ", ...)
 help_text <- tags$ul(
   class = "sub-help-list",

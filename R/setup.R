@@ -142,6 +142,19 @@ orion_entry_from_file <- function(path = "~/.config/mcptools/config.json") {
   list(mcpServers = list(`orion-dbs` = entry))
 }
 
+# Where exported files appear on the user's machine, for the system prompt:
+# "in <folder>". With the orion-dbs entry from the mcptools config file
+# (`from_file`), the app does not know which folder that entry mounts.
+export_folder_phrase <- function(folder, from_file = FALSE) {
+  if (from_file) {
+    return(paste0(
+      "in the export folder set in the orion-dbs entry of ",
+      "~/.config/mcptools/config.json"
+    ))
+  }
+  paste0("in ", folder)
+}
+
 write_mcp_config <- function(config,
                              path = tempfile("orion-mcp-", fileext = ".json")) {
   jsonlite::write_json(config, path, auto_unbox = TRUE, pretty = TRUE)
