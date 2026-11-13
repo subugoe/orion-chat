@@ -812,6 +812,18 @@ test_that("small lookups do not make a plain yes ambiguous", {
   expect_true(decide(log, main, 2L, "run #2")$allow)
 })
 
+test_that("run_question() repeats the number, size and cost", {
+  result <- '{"bytes_processed": 909359722, "gb_processed": 0.909, "cost_usd_estimate": 0.0052}'
+  expect_identical(
+    as.character(run_question(4L, result)),
+    "Shall I run Estimate #4 (0.909 GB, about $0.0052)?"
+  )
+  small <- '{"gb_processed": 0.019, "cost_usd_estimate": 0.0001}'
+  expect_match(run_question(1L, small), "(0.019 GB, about $0.0001)", fixed = TRUE)
+  expect_null(run_question(1L, '{"bytes_processed": 123}'))
+  expect_null(run_question(1L, "not json"))
+})
+
 test_that("the estimate result tells the model when it may run unasked", {
   fake <- ellmer::tool(
     function(query) {
@@ -828,4 +840,27 @@ test_that("the estimate result tells the model when it may run unasked", {
   big <- estimate(query = "SELECT big")
   expect_match(big, "so the user can approve it by number")
   expect_no_match(big, "without asking")
+  # Without size and cost in the result, a general rule.
+  expect_match(big, "End your message with the question")
+  expect_match(big, "repeating the estimate number and cost", fixed = TRUE)
+})
+
+test_that("the estimate result gives the question with the cost", {
+  fake <- ellmer::tool(
+    function(query) {
+      jsonlite::toJSON(
+        list(bytes_processed = 909359722, gb_processed = 0.909,
+             cost_usd_estimate = 0.0052),
+        auto_unbox = TRUE
+      )
+    },
+    name = "orion_estimate_query_cost", description = "Estimate.",
+    arguments = list(query = type_string("SQL"))
+  )
+  estimate <- number_estimates(list(fake), new_estimate_log())[[1]]
+  expect_match(
+    estimate(query = "SELECT 1"),
+    "'Shall I run Estimate #1 (0.909 GB, about $0.0052)?'",
+    fixed = TRUE
+  )
 })

@@ -247,8 +247,9 @@ gate_allow <- function(unasked = FALSE) {
 gate_reject <- function(...) list(allow = FALSE, message = paste0(...))
 
 ask_again <- paste0(
-  "Show the SQL, the estimated cost and the estimate number, ask ",
-  "'Shall I run this query?', and wait for a yes."
+  "Show the SQL, the estimated cost and the estimate number, end with a ",
+  "question that repeats the number and cost, such as 'Shall I run ",
+  "Estimate #n (x GB, about $y)?', and wait for a yes."
 )
 
 how_to_approve <- paste0(
@@ -467,6 +468,22 @@ last_reply_text <- function(turns) {
     str_flatten("\n")
 }
 
+# The question that ends a message presenting estimate `number`, with the
+# size and cost from the estimate `result` (JSON from orion-mcp), so the
+# user sees the cost next to the question. NULL if the result lacks them.
+run_question <- function(number, result) {
+  fields <- tryCatch(jsonlite::fromJSON(result), error = \(e) NULL)
+  gb <- fields$gb_processed
+  cost <- fields$cost_usd_estimate
+  is_number <- \(x) is.numeric(x) && length(x) == 1 && !is.na(x)
+  if (!is_number(gb) || !is_number(cost)) {
+    return(NULL)
+  }
+  # Not 1e-04 for small costs.
+  plain <- \(x) format(x, scientific = FALSE, trim = TRUE)
+  glue("Shall I run Estimate #{number} ({plain(gb)} GB, about ${plain(cost)})?")
+}
+
 # Replace orion_estimate_query_cost by a tool that records each successful
 # dry-run in `log` and tells the model its number. Tool errors come back as
 # a ContentToolResult and pass through unchanged.
@@ -499,11 +516,19 @@ number_estimates <- function(tools, log) {
             "and ask; use it as a lookup and mention it in one line."
           ))
         }
+        question <- run_question(number, result)
+        question_rule <- if (is.null(question)) {
+          "repeating the estimate number and cost"
+        } else {
+          glue("'{question}'")
+        }
         glue(
           "{result}\n\nThis is Estimate #{number}. Show 'Estimate ",
           "#{number}' with the cost, so the user can approve it by number. ",
-          "Once approved, run it by passing estimate = {number} instead of ",
-          "the SQL."
+          "End your message with the question, so the cost stays next to ",
+          "it: {question_rule} (for several estimates, one question that ",
+          "names each with its cost). Once approved, run it by passing ",
+          "estimate = {number} instead of the SQL."
         )
       },
       name = tool@name,
