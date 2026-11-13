@@ -80,7 +80,7 @@ check_startup <- function(key_set,
     stop_plain("Docker is not running. Start Docker Desktop and try again.")
   }
   if (run(c("image", "inspect", image)) != 0) {
-    stop_plain("The orion-mcp image is missing. Run: docker pull ", image)
+    stop_plain(glue("The orion-mcp image is missing. Run: docker pull {image}"))
   }
   credentials <- path.expand(credentials)
   logged_in <- file.exists(credentials) && !dir.exists(credentials)
@@ -105,17 +105,17 @@ orion_mcp_config <- function(docker,
                              image = orion_image) {
   args <- c(
     "run", "--rm", "-i",
-    "-v", paste0(path.expand(export_dir), ":/data/exports"),
+    "-v", glue("{path.expand(export_dir)}:/data/exports"),
     "-e", "SCHEMA_REFRESH=0"
   )
   if (nzchar(billing_project)) {
     args <- c(
       args,
-      "-v", paste0(
-        path.expand(credentials),
-        ":/root/.config/gcloud/application_default_credentials.json:ro"
+      "-v", glue(
+        "{path.expand(credentials)}:",
+        "/root/.config/gcloud/application_default_credentials.json:ro"
       ),
-      "-e", paste0("BQ_BILLING_PROJECT=", billing_project)
+      "-e", glue("BQ_BILLING_PROJECT={billing_project}")
     )
   }
   list(mcpServers = list(`orion-dbs` = list(
@@ -152,7 +152,7 @@ export_folder_phrase <- function(folder, from_file = FALSE) {
       "~/.config/mcptools/config.json"
     ))
   }
-  paste0("in ", folder)
+  glue("in {folder}")
 }
 
 write_mcp_config <- function(config,

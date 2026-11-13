@@ -128,7 +128,7 @@ test_that("patch_mcptools_timeout() warns instead of failing on unknown code", {
 
 test_that("export_folder_phrase() names the folder in use", {
   expect_identical(
-    export_folder_phrase("~/data/orion"),
+    as.character(export_folder_phrase("~/data/orion")),
     "in ~/data/orion"
   )
   # The orion-dbs entry from the mcptools config mounts a folder the app

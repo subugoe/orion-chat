@@ -227,7 +227,7 @@ request_key <- function(arguments, log) {
 # "#1, #2" for the estimates in the log, or "none".
 estimate_list <- function(log) {
   numbers <- sort(map_int(log$records, "number"))
-  if (length(numbers) == 0) "none" else paste0("#", str_flatten(numbers, ", #"))
+  if (length(numbers) == 0) "none" else glue("#{str_flatten(numbers, ', #')}")
 }
 
 record_approval <- function(log, n_user_messages) {
@@ -280,20 +280,19 @@ table_problem <- function(destination, overwrite, reply) {
   valid <- is.character(destination) && length(destination) == 1 &&
     !is.na(destination) && str_trim(destination) != ""
   if (!valid) {
-    return(paste0("Not run: the call names no destination table. ", ask_table))
+    return(glue("Not run: the call names no destination table. {ask_table}"))
   }
   destination <- str_trim(destination)
   if (!str_detect(reply, fixed(str_to_lower(destination)))) {
-    return(paste0(
+    return(glue(
       "Not run: the user approved, but your last message did not name the ",
-      "destination table '", destination, "'. ", ask_table
+      "destination table '{destination}'. {ask_table}"
     ))
   }
   if (asks_overwrite(overwrite) && !str_detect(reply, overwrite_words)) {
-    return(paste0(
+    return(glue(
       "Not run: the call sets overwrite, but your last message did not say ",
-      "that the existing table '", destination, "' will be replaced. ",
-      ask_table
+      "that the existing table '{destination}' will be replaced. {ask_table}"
     ))
   }
   NULL
@@ -340,33 +339,33 @@ approval_decision <- function(tool, sql_key, estimated, n_user_messages,
     if (isTRUE(approval$approved)) {
       return(gate_allow())
     }
-    return(gate_reject(
+    return(gate_reject(glue(
       "Not run: the user has not approved this yet. Say which result will ",
-      "be saved. ", ask_table
-    ))
+      "be saved. {ask_table}"
+    )))
   }
 
   if (is.null(record) && !is.null(estimate)) {
     number <- estimate_number(estimate)
     if (is.na(number)) {
-      return(gate_reject(
-        "Not run: ", pass_integer, " Existing estimates: ",
-        estimate_list(estimated), "."
-      ))
+      return(gate_reject(glue(
+        "Not run: {pass_integer} Existing estimates: ",
+        "{estimate_list(estimated)}."
+      )))
     }
-    return(gate_reject(
-      "Not run: there is no Estimate #", number, ". Existing estimates: ",
-      estimate_list(estimated), ". Only orion_estimate_query_cost gives ",
+    return(gate_reject(glue(
+      "Not run: there is no Estimate #{number}. Existing estimates: ",
+      "{estimate_list(estimated)}. Only orion_estimate_query_cost gives ",
       "estimate numbers and costs. Dry-run the SQL with it, show the user ",
       "the number and cost it returns, and wait for approval."
-    ))
+    )))
   }
   if (is.null(record)) {
-    return(gate_reject(
+    return(gate_reject(glue(
       "Not run: pass the number of an approved estimate as 'estimate'. ",
       "This tool takes no SQL; dry-run new SQL with ",
-      "orion_estimate_query_cost first. ", ask_again
-    ))
+      "orion_estimate_query_cost first. {ask_again}"
+    )))
   }
   # Small lookups run without asking. Exports and tables always need an
   # approval, since they write files or tables.
@@ -374,28 +373,29 @@ approval_decision <- function(tool, sql_key, estimated, n_user_messages,
     return(gate_allow(unasked = TRUE))
   }
   if (is.na(shown_at(record, n_user_messages))) {
-    return(gate_reject(
+    return(gate_reject(glue(
       "Not run: this exact SQL was dry-run after the user's last message, ",
-      "so the user has not seen it. ", ask_again
-    ))
+      "so the user has not seen it. {ask_again}"
+    )))
   }
   if (!isTRUE(approval$approved)) {
-    return(gate_reject(
-      "Not run: the user has not approved this yet. ", ask_again, " ",
-      if (tool %in% table_tools) paste0(ask_table, " "),
-      how_to_approve
-    ))
+    # Not NULL: glue() returns an empty string when a value is NULL.
+    table_note <- if (tool %in% table_tools) glue("{ask_table} ") else ""
+    return(gate_reject(glue(
+      "Not run: the user has not approved this yet. {ask_again} ",
+      "{table_note}{how_to_approve}"
+    )))
   }
 
   if (length(approval$numbers) > 0) {
     if (record$number %in% approval$numbers) {
       return(gate_allow())
     }
-    return(gate_reject(
-      "Not run: the user approved estimate #",
-      str_flatten(approval$numbers, ", #"), ", but this SQL is estimate #",
-      record$number, ". Run only the approved estimates."
-    ))
+    return(gate_reject(glue(
+      "Not run: the user approved estimate ",
+      "#{str_flatten(approval$numbers, ', #')}, but this SQL is estimate ",
+      "#{record$number}. Run only the approved estimates."
+    )))
   }
 
   # A plain "yes" refers to the latest step: the open estimates that were
@@ -410,12 +410,14 @@ approval_decision <- function(tool, sql_key, estimated, n_user_messages,
   }
   numbers <- sort(map_int(latest, "number"))
   listed <- if (length(numbers) > 0) {
-    paste0(" (open estimates: #", str_flatten(numbers, ", #"), ")")
+    glue(" (open estimates: #{str_flatten(numbers, ', #')})")
+  } else {
+    ""
   }
-  gate_reject(
-    "Not run: it is not clear which estimate the user approved", listed,
-    ". Ask which to run. ", how_to_approve
-  )
+  gate_reject(glue(
+    "Not run: it is not clear which estimate the user approved{listed}. ",
+    "Ask which to run. {how_to_approve}"
+  ))
 }
 
 # Messages the user typed (tool results are stored as user turns without text).
@@ -473,19 +475,18 @@ number_estimates <- function(tools, log) {
           return(result)
         }
         if (runs_unasked(log$records[[sql_key(query)]], log)) {
-          return(paste0(
-            result, "\n\nThis is Estimate #", number, ". It is small ",
-            "enough to run with orion_run_bq_query (estimate = ", number,
-            ") without asking the user. Ignore the instruction above to ",
-            "present it and ask; use it as a lookup and mention it in one ",
-            "line."
+          return(glue(
+            "{result}\n\nThis is Estimate #{number}. It is small enough to ",
+            "run with orion_run_bq_query (estimate = {number}) without ",
+            "asking the user. Ignore the instruction above to present it ",
+            "and ask; use it as a lookup and mention it in one line."
           ))
         }
-        paste0(
-          result, "\n\nThis is Estimate #", number, ". Show 'Estimate #",
-          number, "' with the cost, so the user can approve it by number. ",
-          "Once approved, run it by passing estimate = ", number,
-          " instead of the SQL."
+        glue(
+          "{result}\n\nThis is Estimate #{number}. Show 'Estimate ",
+          "#{number}' with the cost, so the user can approve it by number. ",
+          "Once approved, run it by passing estimate = {number} instead of ",
+          "the SQL."
         )
       },
       name = tool@name,
@@ -511,9 +512,10 @@ app_description <- function(description, auto_run_bytes = 0) {
   if (auto_run_bytes > 0) {
     description <- str_replace(
       description, fixed(never_skip),
-      paste0(
-        "In this app, queries whose estimate is under ", auto_run_bytes / 1e9,
-        " GB run without asking; all others need the user's approval."
+      glue(
+        "In this app, queries whose estimate is under ",
+        "{auto_run_bytes / 1e9} GB run without asking; all others need the ",
+        "user's approval."
       )
     )
   }
@@ -540,13 +542,13 @@ run_by_estimate <- function(tools, log) {
       number <- estimate_number(args$estimate)
       if (is.na(number)) {
         return(ellmer::ContentToolResult(
-          error = paste0("Not run: ", pass_integer)
+          error = glue("Not run: {pass_integer}")
         ))
       }
       key <- estimate_key(log, number)
       if (is.null(key)) {
         return(ellmer::ContentToolResult(
-          error = paste0("There is no Estimate #", number, ".")
+          error = glue("There is no Estimate #{number}.")
         ))
       }
       args$query <- log$records[[key]]$sql
@@ -558,10 +560,10 @@ run_by_estimate <- function(tools, log) {
     ellmer::tool(
       fun,
       name = tool@name,
-      description = paste(
-        app_description(tool@description, log$auto_run_bytes %||% 0),
-        "In this app the tool takes no SQL: pass `estimate`, the number of",
-        "an approved cost estimate, and its SQL runs exactly as it was",
+      description = glue(
+        "{app_description(tool@description, log$auto_run_bytes %||% 0)} ",
+        "In this app the tool takes no SQL: pass `estimate`, the number of ",
+        "an approved cost estimate, and its SQL runs exactly as it was ",
         "dry-run."
       ),
       arguments = arguments,
