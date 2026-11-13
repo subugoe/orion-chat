@@ -394,7 +394,11 @@ server <- function(input, output, session) {
     problem <- tool_choice_problem(model, provider)
     if (!is.null(problem)) {
       showNotification(problem, type = "error", duration = 10)
-      updateSelectInput(session, "model", selected = selected_model)
+      # `selected` alone is ignored; the choices must come with it.
+      bslib::update_toolbar_input_select(
+        "model",
+        choices = model_choices, selected = selected_model
+      )
       return()
     }
     chat$set_client(new_chat(model, estimated, tools))
