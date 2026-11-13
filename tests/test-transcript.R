@@ -119,6 +119,98 @@ test_that("long results are cut with a note giving the full length", {
   expect_true(str_detect(md, strrep("x", 2000)))
 })
 
+# A dry-run result as orion_estimate_query_cost of orion-mcp returns it
+# (checked against the server on 2026-11-13), with the note that
+# number_estimates() appends.
+estimate_result <- function(sql, number) {
+  fake <- ellmer::tool(
+    function(query) {
+      query <- lapply(match.call()[-1], eval)$query
+      as.character(jsonlite::toJSON(
+        list(
+          bytes_processed = 327602034, gb_processed = 0.328,
+          cost_usd_estimate = 0.0019, sql = query,
+          message = paste(
+            "This query will scan 0.328 GB (estimated cost: $0.0019).",
+            strrep("Present this to the user in exactly this order. ", 22)
+          )
+        ),
+        auto_unbox = TRUE, pretty = TRUE
+      ))
+    },
+    name = "orion_estimate_query_cost", description = "Estimate.",
+    arguments = list(query = type_string("SQL"))
+  )
+  log <- new_estimate_log()
+  for (i in seq_len(number - 1)) record_estimate(log, paste("SELECT", i), 1, 1L)
+  number_estimates(list(fake), log)[[1]](query = sql)
+}
+
+test_that("an estimate result shows its number in the label, cut or not", {
+  columns <- str_flatten(paste0("column_", 1:60), ",\n  ")
+  long_sql <- paste0("SELECT\n  ", columns, "\nFROM openalex.works")
+  long <- estimate_result(long_sql, 2)
+  expect_gt(str_length(long), transcript_result_limit)
+  # The note with the number is beyond the cut.
+  expect_gt(
+    str_locate(long, fixed("This is Estimate #2"))[1, 1],
+    transcript_result_limit
+  )
+  turns <- list(
+    AssistantTurn(list(estimate)),
+    UserTurn(list(ContentToolResult(long, request = estimate)))
+  )
+  md <- render_transcript(turns, meta)
+  expect_match(
+    md, "**Tool result** (`orion_estimate_query_cost`, Estimate #2):",
+    fixed = TRUE
+  )
+  expect_match(md, "(Cut at 2,000 of", fixed = TRUE)
+  expect_no_match(md, "This is Estimate #2", fixed = TRUE)
+
+  short <- estimate_result("SELECT doi FROM openalex.works", 1)
+  expect_lt(str_length(short), transcript_result_limit)
+  turns[[2]] <- UserTurn(list(ContentToolResult(short, request = estimate)))
+  md <- render_transcript(turns, meta)
+  expect_match(
+    md, "**Tool result** (`orion_estimate_query_cost`, Estimate #1):",
+    fixed = TRUE
+  )
+  # The text of the result is unchanged.
+  expect_match(md, "This is Estimate #1.", fixed = TRUE)
+})
+
+test_that("only estimate results get a number in the label", {
+  run <- ContentToolRequest(
+    id = "c4", name = "orion_run_bq_query", arguments = list(estimate = 3L)
+  )
+  turns <- list(
+    AssistantTurn(list(run, estimate)),
+    UserTurn(list(
+      ContentToolResult(
+        "Rows for Estimate #3. This is Estimate #3.",
+        request = run
+      ),
+      # SQL that mentions a number, without the note.
+      ContentToolResult("SELECT 'Estimate #7' AS label", request = estimate),
+      ContentToolResult(
+        error = "Refused. This is Estimate #9.", request = estimate
+      )
+    ))
+  )
+  md <- render_transcript(turns, meta)
+  expect_match(md, "**Tool result** (`orion_run_bq_query`):", fixed = TRUE)
+  expect_match(
+    md, "**Tool result** (`orion_estimate_query_cost`):",
+    fixed = TRUE
+  )
+  expect_match(
+    md, "**Tool error** (`orion_estimate_query_cost`):",
+    fixed = TRUE
+  )
+  expect_no_match(md, ", Estimate #")
+})
+
 test_that("non-text results, backticks and unknown content do not fail", {
   turns <- list(
     AssistantTurn(list(estimate)),
